@@ -1,0 +1,18 @@
+# Allowlist des groupes WhatsApp autorisés à l'envoi (cf. harness/src/wa-guard.ts).
+#
+# Une ligne = un identifiant de groupe (`<id>@g.us`). `#` commente. `*` déverrouille tous les
+# groupes (à éviter en pratique — préfère lister explicitement).
+#
+# ⚠️ Attention à la rétrocompatibilité du parseur (`parseGroupAllowlist`) : un fichier PRÉSENT mais
+# SANS AUCUNE ligne active (que des commentaires) déverrouille TOUT (ancien geste « touch = ouvrir »).
+# Ce fichier ship donc avec une ligne active bidon ci-dessous : tant que tu ne l'as pas remplacée,
+# le set n'est jamais vide → aucun vrai groupe n'est déverrouillé (verrouillé par défaut, tel
+# qu'attendu). Remplace-la par tes vrais identifiants de groupe, ou ajoute les tiens en plus.
+REMPLACE-MOI-PAR-UN-VRAI-GROUPE@g.us
+#
+# Préfixe `!` (`!<id>@g.us`) : le groupe est autorisé à l'envoi MAIS en régime restreint — sans
+# continuité de conversation, et seul le principal peut invoquer l'agent dedans (cf.
+# `parseRestrictedGroups` dans wa-guard.ts).
+#
+# Ce fichier doit être VERSIONNÉ (commité) — un déverrouillage de groupe est une décision
+# explicite et traçable, jamais un geste local silencieux.

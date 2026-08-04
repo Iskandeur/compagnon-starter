@@ -1,0 +1,16 @@
+{
+  "name": "compagnon-harness",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Le corps optionnel de ton compagnon — daemon always-on, zéro dépendance (modules natifs Node >=22).",
+  "engines": { "node": ">=22.6" },
+  "scripts": {
+    "test": "node --test",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "@types/node": "^22.0.0"
+  }
+}

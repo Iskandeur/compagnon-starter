@@ -1,0 +1,11 @@
+# État runtime du corps (jetable, recréé tout seul) — ne JAMAIS versionner.
+*.sqlite
+*.sqlite-*
+harness/data/
+harness/node_modules/
+harness/dist/
+
+# Secrets locaux (clés API, tokens) — jamais commités.
+.env
+.env.*
+!.env.example
