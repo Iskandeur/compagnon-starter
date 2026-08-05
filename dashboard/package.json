@@ -1,0 +1,12 @@
+{
+  "name": "compagnon-dashboard",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Dashboard opérateur, lecture seule, pour le harnais d'un compagnon always-on.",
+  "engines": { "node": ">=22.6" },
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test"
+  }
+}

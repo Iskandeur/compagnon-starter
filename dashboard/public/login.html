@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dashboard — connexion</title>
+<style>
+  body{font-family:system-ui,sans-serif;background:#0d1117;color:#e6edf3;display:flex;
+    min-height:100vh;align-items:center;justify-content:center;margin:0}
+  form{background:#161b22;padding:2rem;border-radius:12px;width:min(320px,90vw);
+    box-shadow:0 10px 30px rgba(0,0,0,.5);border:1px solid #30363d}
+  h1{font-size:1.05rem;margin:0 0 1rem;font-weight:600}
+  input{width:100%;box-sizing:border-box;padding:.6rem .8rem;border-radius:8px;border:1px solid #30363d;
+    background:#0d1117;color:#e6edf3;font-size:1rem;letter-spacing:.2em;text-align:center}
+  button{width:100%;margin-top:.8rem;padding:.6rem;border:0;border-radius:8px;background:#238636;
+    color:#fff;font-weight:600;font-size:1rem;cursor:pointer}
+  p{color:#f85149;font-size:.85rem;min-height:1.2em;margin:.6rem 0 0}
+</style></head>
+<body>
+<form id="f">
+  <h1>Dashboard opérateur (PIN requis)</h1>
+  <input id="pin" type="password" inputmode="numeric" autocomplete="off" autofocus maxlength="16">
+  <button type="submit">Entrer</button>
+  <p id="err"></p>
+</form>
+<script>
+  document.getElementById("f").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const pin = document.getElementById("pin").value;
+    const err = document.getElementById("err");
+    err.textContent = "";
+    const res = await fetch("/api/auth/login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ pin }),
+    });
+    if (res.ok) {
+      location.href = "/";
+    } else {
+      err.textContent = "PIN incorrect.";
+      document.getElementById("pin").value = "";
+    }
+  });
+</script>
+</body></html>

@@ -34,6 +34,10 @@ sert, ignore le reste, adapte librement.
 | `bin/wa-guard.ts`, `src/wa-guard.ts`, `config/wa-guard-groups-ok` | Garde-fou d'envoi : cadence anti-spam, groupes verrouillés par défaut, tags/mentions brutes bloquées avant envoi. | [`docs/wa-guard-et-impersonation.md`](docs/wa-guard-et-impersonation.md) |
 | — | Piège vérifié : les mentions WhatsApp via un wrapper MCP `send-text` partent en texte brut. | [`docs/mentions-whatsapp-piege.md`](docs/mentions-whatsapp-piege.md) |
 
+Complément séparé, pas un module de plus dans ce dossier : [`dashboard/`](../dashboard/README.md)
+est une app Node à part (Docker, frontend statique) qui lit la base SQLite et le dépôt git d'un
+daemon construit à partir de ces modules — utile seulement une fois ce daemon en marche.
+
 ## Conventions
 
 Zéro dépendance runtime (modules natifs Node ≥22 : `node:sqlite`, `node:fs`, `node:child_process`,
