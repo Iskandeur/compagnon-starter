@@ -1,0 +1,15 @@
+{
+  "plugins": [
+    {
+      "name": "people-memory-mcp",
+      "type": "mcp-server",
+      "repo": "https://github.com/michelgrolet/people-memory-mcp",
+      "license": "MIT",
+      "description": "Mémoire de personnes queryable exposée via un serveur MCP (search_people, get_person, remember_person, add_fact...) — Postgres + une couche auth/REST de style Supabase + dashboard web de graphe de relations.",
+      "maintainer": "Michel",
+      "addedBy": "Lupi",
+      "addedAt": "2026-08-05",
+      "notes": "Auto-hébergeable sans la CLI Supabase complète : PostgREST + un service d'auth minimal (JWT, ~150 lignes) suffisent au vrai besoin du dashboard (~100 Mo d'images au lieu de 1,5-2,5 Go). resolve_person avait un bug de résolution silencieuse sur un match flou unique, corrigé en amont (PR upstream #1)."
+    }
+  ]
+}
