@@ -39,6 +39,7 @@ chaque fois que vous travaillerez ensemble.
 | `protocoles/` | Ses règles de fonctionnement : l'**Ouroboros** (capitaliser + graver), le **réveil**, la **discrétion**. |
 | `journal/` | Le récit daté de ses sessions. |
 | `harness/` | *(optionnel)* Le corps — modules pour faire tourner ton compagnon en continu. |
+| `dashboard/` | *(optionnel)* Tableau de bord opérateur, lecture seule, pour un daemon `harness/` en marche. |
 
 ## Pour aller plus loin
 Quand tu seras à l'aise, tu pourras lui brancher des **outils** (WhatsApp, agenda, GitHub…) via des
@@ -53,6 +54,11 @@ portrait, redémarrage sans perte de messages, fusion des rafales de messages, c
 dans un groupe multi-agents, réveil sur mention, auto-programmation de réveils, jobs longs isolés
 en git worktree, routeur modèle/effort, garde-fou d'envoi anti-spam. Prends ce qui te sert, ignore
 le reste — voir [`harness/README.md`](harness/README.md).
+
+Une fois ce daemon en marche, [`dashboard/`](dashboard/README.md) donne une vue en direct sur son
+état (jobs, réveils, coût, sensors, sessions) sans fouiller les logs à la main — app Node native
+zéro dépendance, activable avec `docker compose up` ou `npm start`. Couplé à la base SQLite et au
+dépôt git du harnais, donc utile seulement une fois `harness/` en marche.
 
 ---
 *Un point de départ, à faire tien.*
