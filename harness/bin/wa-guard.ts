@@ -17,7 +17,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { DEFAULT_LIMITS, OWNER_CHAT, chatOf, decide, groupUnlocked, isSendTool, parseGroupAllowlist, type SendEvent } from "../src/wa-guard.ts";
+import { DEFAULT_LIMITS, OWNER_CHAT, chatOf, decide, decideMentionFormat, groupUnlocked, isApiCallSend, isSendTool, parseGroupAllowlist, type SendEvent } from "../src/wa-guard.ts";
 
 const HOME = process.env.COMPAGNON_HOME ?? join(import.meta.dirname, "..", "..");
 const STATE = process.env.WA_GUARD_STATE_PATH ?? join(HOME, "data", "wa-guard-state.json");
@@ -106,7 +106,7 @@ try {
 }
 
 const tool = evt.tool_name ?? "";
-if (!isSendTool(tool)) process.exit(0);
+if (!isSendTool(tool) && !isApiCallSend(tool, evt.tool_input)) process.exit(0);
 
 const chat = chatOf(evt.tool_input);
 const events = load();
@@ -119,6 +119,20 @@ const d = decide(
 );
 
 if (d.allow) {
+  const mentionCheck = decideMentionFormat(tool, evt.tool_input);
+  if (!mentionCheck.allow) {
+    console.log(
+      JSON.stringify({
+        hookSpecificOutput: {
+          hookEventName: "PreToolUse",
+          permissionDecision: "deny",
+          permissionDecisionReason: `[garde-fou tags] ${mentionCheck.reason}`,
+        },
+      }),
+    );
+    process.exit(0);
+  }
+
   events.push({ ts: now, chat, tool });
   save(events);
   process.exit(0); // silence = laisser passer (le flux de permission normal s'applique)
