@@ -31,7 +31,7 @@ sert, ignore le reste, adapte librement.
 | `bin/schedule-wake.ts`, `src/scheduler.ts` | L'agent se programme lui-même des réveils futurs, avec budget de sobriété. | [`docs/self-scheduling.md`](docs/self-scheduling.md) |
 | `src/lib/worktree.ts` | Travail long isolé dans un git worktree dédié, jamais sur la working-copy vivante. | [`docs/jobs-worktree-isoles.md`](docs/jobs-worktree-isoles.md) |
 | `src/lib/router.ts` | Choix modèle/effort par message — mode auto ou épinglé par commande humaine. | [`docs/routeur-pre-vol.md`](docs/routeur-pre-vol.md) |
-| `bin/wa-guard.ts`, `src/wa-guard.ts`, `config/wa-guard-groups-ok` | Garde-fou d'envoi : cadence anti-spam, groupes verrouillés par défaut. | [`docs/wa-guard-et-impersonation.md`](docs/wa-guard-et-impersonation.md) |
+| `bin/wa-guard.ts`, `src/wa-guard.ts`, `config/wa-guard-groups-ok` | Garde-fou d'envoi : cadence anti-spam, groupes verrouillés par défaut, tags/mentions brutes bloquées avant envoi. | [`docs/wa-guard-et-impersonation.md`](docs/wa-guard-et-impersonation.md) |
 | — | Piège vérifié : les mentions WhatsApp via un wrapper MCP `send-text` partent en texte brut. | [`docs/mentions-whatsapp-piege.md`](docs/mentions-whatsapp-piege.md) |
 
 ## Conventions
