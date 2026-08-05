@@ -8,7 +8,7 @@
  * ou simplement mal évaluer une rafale légitime. D'où un garde-fou qui ne dépend PAS du jugement de
  * l'agent au moment de l'envoi, branché en hook PreToolUse sur les outils d'envoi WhatsApp.
  *
- * Quatre verrous :
+ * Cinq verrous :
  *  1. **HOLD** — si le hold d'envoi est actif (ex. canal en cours de reconnexion), rien ne part.
  *  2. **Cadence** — espacement minimal entre 2 envois + plafonds glissants (5 min / 1 h).
  *  3. **Fan-out** — nombre de destinataires DISTINCTS par heure / par jour (le vrai signal spam
@@ -19,6 +19,11 @@
  *     l'humain, utilisé pour LIRE ses messages, pas pour parler à sa place) refuse tout envoi via
  *     ce module — l'impersonation exige une validation humaine explicite à chaque fois, jamais
  *     automatique (cf. `harness/docs/wa-guard-et-impersonation.md`).
+ *  5. **Tags/mentions** (`decideMentionFormat`) — même logique mécanique, même raison d'être : un
+ *     `@<numéro>` tapé en brut dans le texte s'affiche illisible chez le destinataire (l'outil
+ *     `send-*` n'a pas de champ mentions dédié). Ceci bloque l'envoi AVANT qu'il parte, qu'il passe
+ *     par un outil `send-*` (il faut alors router par `api-call POST /api/send…` + `body.mentions`)
+ *     ou par `api-call` lui-même si `mentions` a été oublié dans le body.
  *
  * Ce module est pur (aucune I/O) pour rester testable ; l'I/O vit dans `bin/wa-guard.ts`.
  */
@@ -190,9 +195,124 @@ export function groupUnlocked(allow: Set<string>, chat: string): boolean {
   return allow.has("*") || allow.has(chat);
 }
 
-/** Extrait le chatId de l'input d'outil d'envoi (best-effort, tolère plusieurs conventions de nommage). */
+/** Extrait le chatId de l'input d'outil d'envoi (best-effort, tolère plusieurs conventions de nommage).
+ *  Pour `api-call`, le chatId n'est pas au premier niveau mais niché dans `body`
+ *  (`{path, method, body:{chatId,...}}`) — voir `isApiCallSend` plus bas. */
 export function chatOf(input: Record<string, unknown> | undefined): string {
   if (!input) return "?";
-  const v = input.chatId ?? input.to ?? input.chat_id ?? input.participant;
+  const body = input.body && typeof input.body === "object" ? (input.body as Record<string, unknown>) : undefined;
+  const v = input.chatId ?? input.to ?? input.chat_id ?? input.participant ?? body?.chatId ?? body?.to ?? body?.chat_id ?? body?.participant;
   return typeof v === "string" && v ? v : "?";
+}
+
+/** Endpoints WAHA (POST) qui constituent un envoi, quand passés via un outil générique `api-call`
+ *  plutôt qu'un outil `send-*` dédié (adapte cette liste à ton propre client WhatsApp si ses noms
+ *  d'endpoints diffèrent). Chemin normalisé : minuscules, sans querystring ni slash final. */
+const API_CALL_SEND_PATHS = new Set([
+  "/api/forwardmessage",
+  "/api/send/buttons/reply",
+  "/api/send/link-custom-preview",
+  "/api/sendbuttons",
+  "/api/sendcontactvcard",
+  "/api/sendfile",
+  "/api/sendimage",
+  "/api/sendlinkpreview",
+  "/api/sendlist",
+  "/api/sendlocation",
+  "/api/sendpoll",
+  "/api/sendpollvote",
+  "/api/sendseen",
+  "/api/sendtext",
+  "/api/sendvideo",
+  "/api/sendvoice",
+]);
+/** `/api/{session}/status/(text|image|video|voice)` — l'équivalent statut des envois ci-dessus. */
+const API_CALL_STATUS_SEND_RE = /^\/api\/[^/]+\/status\/(text|image|video|voice)$/;
+
+function normalizeApiCallPath(input: Record<string, unknown> | undefined): string {
+  const raw = typeof input?.path === "string" ? input.path : "";
+  return raw.split("?")[0].replace(/\/+$/, "").toLowerCase();
+}
+
+/** Un appel `api-call` est-il, de fait, un envoi WhatsApp (donc soumis au même garde-fou que les
+ *  outils `send-*` dédiés) ? Sans ce détour, un contournement du garde-fou mentions ci-dessous
+ *  (`api-call POST /api/sendText`) échapperait entièrement à la cadence/au fan-out/au verrou groupe
+ *  — précisément ce que ce module existe pour empêcher. */
+export function isApiCallSend(tool: string, input: Record<string, unknown> | undefined): boolean {
+  if (!/^mcp__whatsapp_(own|human)__api-call$/.test(tool)) return false;
+  const method = typeof input?.method === "string" ? input.method.toUpperCase() : "";
+  if (method !== "POST") return false;
+  const path = normalizeApiCallPath(input);
+  return API_CALL_SEND_PATHS.has(path) || API_CALL_STATUS_SEND_RE.test(path);
+}
+
+const PUBLIC_TEXT_KEYS = new Set([
+  "text",
+  "body",
+  "caption",
+  "description",
+  "title",
+  "message",
+  "footer",
+  "button",
+  "buttons",
+  "name",
+  "options",
+  "rowId",
+  "url",
+]);
+
+function collectPublicText(value: unknown, key: string | undefined, out: string[]): void {
+  if (typeof value === "string") {
+    if (key && PUBLIC_TEXT_KEYS.has(key) && value.trim()) out.push(value);
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) collectPublicText(item, key, out);
+    return;
+  }
+  if (!value || typeof value !== "object") return;
+  for (const [childKey, child] of Object.entries(value)) collectPublicText(child, childKey, out);
+}
+
+/** Un tag brut `@<numéro/lid>` tapé DANS le texte (pas via un champ mentions dédié) : la plupart des
+ *  clients WhatsApp l'affichent illisible chez le destinataire (le numéro brut au lieu du nom). Piège
+ *  vécu plusieurs fois avant que ce garde-fou mécanique existe — voir le README pour le contexte. */
+const RAW_MENTION_RE = /@\d{6,}/;
+
+/**
+ * Le tag/mention de cet envoi est-il correctement formé ?
+ *  - outil `send-*` (pas de champ mentions exposé) + tag brut dans le texte → refus, il faut passer
+ *    par `api-call POST /api/send…` + `body.mentions`.
+ *  - `api-call` reconnu comme un envoi (cf. `isApiCallSend`) + tag brut + `body.mentions` absent/vide
+ *    → refus, le champ a été oublié.
+ *  - `api-call` avec `body.mentions` rempli, ou aucun tag brut détecté → laisse passer.
+ */
+export function decideMentionFormat(tool: string, input: Record<string, unknown> | undefined): GuardDecision {
+  const apiSend = isApiCallSend(tool, input);
+  if (!apiSend && !isSendTool(tool)) return { allow: true, reason: "pas un envoi" };
+
+  const texts: string[] = [];
+  collectPublicText(input, undefined, texts);
+  if (!texts.some((t) => RAW_MENTION_RE.test(t))) return { allow: true, reason: "aucun tag brut détecté" };
+
+  if (apiSend) {
+    const body = input?.body && typeof input.body === "object" ? (input.body as Record<string, unknown>) : {};
+    const mentions = Array.isArray(body.mentions) ? body.mentions : [];
+    if (mentions.length > 0) return { allow: true, reason: "mention déclarée via body.mentions" };
+    return {
+      allow: false,
+      reason:
+        "Tag brut « @<numéro> » détecté mais body.mentions est vide/absent — ajoute " +
+        'mentions:["<numéro>@c.us"] ou ["<lid>@lid"] dans le body avant d\'envoyer, sinon ton client ' +
+        "affichera le tag en clair.",
+    };
+  }
+  return {
+    allow: false,
+    reason:
+      `Tag brut « @<numéro> » détecté dans un envoi via ${tool} (pas de champ mentions). ` +
+      "Passe par mcp__whatsapp_*__api-call (POST /api/sendText, body.mentions:[\"<numéro>@c.us\" ou \"<lid>@lid\"]), " +
+      "ou adresse-toi par le prénom sans @.",
+  };
 }
