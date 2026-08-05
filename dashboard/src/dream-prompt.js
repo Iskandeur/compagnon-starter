@@ -3,54 +3,54 @@ import { join } from "node:path";
 import { config } from "./config.js";
 
 /**
- * Panneau "Cycle Dream" : montrer le prompt/contexte avec lequel une session Dream démarre — si
- * ton harnais a un cycle nocturne de ce genre (voir `harness/README.md`).
+ * Panneau "Rituel nocturne" (exemple) : si ton compagnon a un cycle qui tourne sans intervention
+ * humaine (consolidation nocturne, veille, whatever tu appelles ça), ce panneau montre le
+ * prompt/contexte avec lequel une nouvelle occurrence démarrerait, et — si ton harnais journalise
+ * ces sessions avec `source: "nightly"` dans une table `session_log` (cf. `src/db.js`) — les vraies
+ * occurrences passées, cliquables comme n'importe quelle autre session.
  *
- * Piège vécu, à éviter dans ton propre harnais : si ton cycle Dream appelle le moteur directement
- * sans jamais passer par ta fonction de journalisation de session, aucune session Dream n'apparaît
- * jamais ici — rien à cliquer. Journalise chaque cycle Dream abouti comme un réveil normal
- * (`source: "dream"`) pour que `GET /api/dream-prompt` puisse servir les VRAIES sessions
- * (`src/db.js::listDreamSessions`) à côté de ce template.
+ * Ce module reconstruit le TEMPLATE ACTUEL — exactement ce qu'une NOUVELLE occurrence recevrait
+ * maintenant, depuis `harness/persona/nightly.md` (à adapter : mets ici le chemin réel du fichier
+ * que TON harnais injecte pour ce rituel, monté en lecture seule, déjà vérifié sans secret). Le
+ * prompt exact reçu par une occurrence PASSÉE n'est archivé nulle part par ce module : si ce
+ * fichier a changé depuis, ce template en diffère — d'où l'avertissement exposé avec la donnée
+ * plutôt qu'enfoui dans un commentaire.
  *
- * Ce module reste utile comme REPLI : il reconstruit le TEMPLATE ACTUEL — exactement ce qu'une
- * NOUVELLE session Dream recevrait maintenant, depuis les mêmes sources que ton cycle Dream réel
- * (`harness/persona/dream.md`, monté en lecture seule, déjà vérifié sans secret pour le panneau
- * Contexte). Le prompt exact reçu par une session PASSÉE n'est toujours archivé nulle part : si
- * `dream.md` ou le code du cycle Dream ont changé depuis, ce template en diffère. D'où
- * l'avertissement exposé avec la donnée plutôt qu'enfoui dans un commentaire.
+ * Optionnel : si tu n'as pas ce pattern, ce panneau affiche juste "fichier introuvable" — retire-le
+ * de `public/index.html` / `public/app.js` si tu préfères ne pas l'exposer du tout.
  */
 const MAX_BYTES = 100_000;
-const DREAM_MD_PATH = "harness/persona/dream.md";
+const NIGHTLY_MD_PATH = "harness/persona/nightly.md";
+const NIGHTLY_SOURCE = "nightly";
 
-// Corps du prompt de reprise après coupure quota — miroir manuel de `runDream()` dans
-// harness/src/dream.ts (variante `opts.resumeSession`). À resynchroniser à la main si ce fichier
-// change ; ce module ne peut pas exécuter/parser du TypeScript pour le lire dynamiquement.
+// Corps d'un prompt de reprise après coupure (ex. quota) — exemple à adapter à ton propre
+// mécanisme de reprise, si tu en as un. Ce module ne peut pas exécuter/parser du TypeScript pour
+// le déduire dynamiquement de ton code : resynchronise ce texte à la main si ta logique change.
 const RESUME_BODY = [
-  "Le quota Claude t'avait interrompu pendant ce rêve. Tu as déjà tout ton contexte dans CETTE",
-  "session : reprends exactement là où tu t'étais arrêté, ne recommence pas de zéro. Termine ton",
-  "cycle (consolidation, apprentissage, projets, Ouroboros) puis envoie le rapport du matin si tu",
-  "ne l'as pas déjà fait.",
+  "Ce cycle avait été interrompu. Tu as déjà tout ton contexte dans CETTE session : reprends",
+  "exactement là où tu t'étais arrêté, ne recommence pas de zéro. Termine ton cycle habituel",
+  "(consolidation, apprentissage, projets) puis envoie ton rapport si tu ne l'as pas déjà fait.",
 ].join("\n");
 
 export function dreamPromptTemplate() {
-  const filePath = join(config.repoPath, DREAM_MD_PATH);
+  const filePath = join(config.repoPath, NIGHTLY_MD_PATH);
   const present = existsSync(filePath);
   const size = present ? statSync(filePath).size : 0;
   const truncated = present && size > MAX_BYTES;
-  const dreamMd = present && !truncated ? readFileSync(filePath, "utf8") : null;
+  const nightlyMd = present && !truncated ? readFileSync(filePath, "utf8") : null;
 
   return {
-    source: DREAM_MD_PATH,
+    source: NIGHTLY_MD_PATH,
     present,
     truncated,
     size,
-    newCycle: dreamMd !== null ? `[🌙 CYCLE DREAM — <horodatage local au moment du réveil>]\n\n${dreamMd}` : null,
-    resume: `[🌙 REPRISE DU CYCLE DREAM — <horodatage local au moment de la reprise>]\n\n${RESUME_BODY}`,
+    newCycle: nightlyMd !== null ? `[🌙 NOUVEAU CYCLE — <horodatage au moment du réveil>]\n\n${nightlyMd}` : null,
+    resume: `[🌙 REPRISE DE CYCLE — <horodatage au moment de la reprise>]\n\n${RESUME_BODY}`,
     warning:
-      "Ceci est le TEMPLATE ACTUEL, reconstruit depuis harness/persona/dream.md : ce qu'une NOUVELLE " +
-      "session Dream recevrait maintenant. Le prompt exact reçu par une session PASSÉE n'est archivé " +
-      "nulle part — si dream.md ou harness/src/dream.ts ont changé depuis, ce template en diffère. " +
-      "Les sessions Dream elles-mêmes sont désormais journalisées (source « dream », depuis le " +
-      "30/07/2026) et listées dans ce panneau : cliquables comme n'importe quelle autre session.",
+      `Ceci est le TEMPLATE ACTUEL, reconstruit depuis ${NIGHTLY_MD_PATH} : ce qu'une NOUVELLE ` +
+      "occurrence recevrait maintenant. Le prompt exact reçu par une occurrence PASSÉE n'est archivé " +
+      "nulle part — si ce fichier ou la logique qui le sert ont changé depuis, ce template en diffère.",
   };
 }
+
+export const DREAM_SOURCE = NIGHTLY_SOURCE;

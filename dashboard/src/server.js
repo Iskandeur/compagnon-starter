@@ -15,15 +15,12 @@ import {
   listDreamSessions,
   listJobs,
   modelSettings,
-  listSensorWakes,
   listSessions,
   listWakes,
-  sensorEvalCounts,
   usageSummary,
 } from "./db.js";
 import { headSha, recentLearningCommits } from "./git.js";
 import { probeDaemon } from "./daemon-health.js";
-import { readSensorNames } from "./sensors-registry.js";
 import { listContextFiles } from "./context-files.js";
 import { GITHUB_LINKS } from "./github-links.js";
 import { readKnowledgeRepos } from "./knowledge-repos.js";
@@ -33,17 +30,6 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const publicDir = join(__dirname, "..", "public");
 
 const MIME = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8" };
-
-const SENSORS_NOTE =
-  "Preuve réelle (table sensor_evals, harnais, depuis le 30/07) : chaque évaluation de sensor est " +
-  "désormais journalisée — les colonnes « silencieux » et « réveils réels » ci-dessous comptent, sur " +
-  "la fenêtre indiquée, combien de ticks sont restés à zéro token (changed:false) vs. ont réellement " +
-  "réveillé une session Claude (changed:true).";
-
-// Fenêtre glissante pour le décompte sensor_evals (panneau Sensors) : 24h, bornée au dernier
-// redémarrage du daemon si plus récent — le journal `sensor_evals` n'existe que depuis lors
-// (table ajoutée le 30/07), une fenêtre de 24h annoncerait sinon un historique qui n'existe pas.
-const SENSOR_EVAL_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 function readCookie(req, name) {
   const header = req.headers.cookie;
@@ -143,19 +129,12 @@ async function handleApi(req, res, pathname, query) {
   const limit = Math.min(Number(query.get("limit") ?? 20) || 20, 100);
 
   if (pathname === "/api/status" && req.method === "GET") {
-    const [daemon, sha, copilotRaw] = await Promise.all([probeDaemon(), headSha(), Promise.resolve(getSetting("copilot_quota"))]);
-    let copilotQuota = null;
-    try {
-      copilotQuota = copilotRaw ? JSON.parse(copilotRaw) : null;
-    } catch {
-      copilotQuota = null;
-    }
+    const [daemon, sha] = await Promise.all([probeDaemon(), headSha()]);
     sendJson(res, 200, {
       daemon,
       daemonGitSha: getSetting("daemon_git_sha"),
       dashboardGitSha: sha,
       lastActivityAt: lastActivityAt(),
-      copilotQuota: copilotQuota ? { ...copilotQuota, budget: 200, safeLimit: 180 } : null,
       db: dbStatus(),
     });
     return true;
@@ -166,28 +145,6 @@ async function handleApi(req, res, pathname, query) {
   }
   if (pathname === "/api/wakes" && req.method === "GET") {
     sendJson(res, 200, listWakes(limit));
-    return true;
-  }
-  if (pathname === "/api/sensors" && req.method === "GET") {
-    const { names, error } = readSensorNames();
-    const wakes = listSensorWakes();
-    const daemonBootedAt = Number(getSetting("daemon_booted_at")) || null;
-    const windowStart = Date.now() - SENSOR_EVAL_WINDOW_MS;
-    const sinceMs = daemonBootedAt && daemonBootedAt > windowStart ? daemonBootedAt : windowStart;
-    sendJson(res, 200, {
-      // Un sensor reconfiguré au fil du temps peut laisser plusieurs lignes `wakes` historiques
-      // (statuts différents, même `sensor`) : on privilégie la/les ligne(s) `pending` actuelles ;
-      // à défaut, seulement la plus récente (id le plus haut, `listSensorWakes` trie par id croissant)
-      // — pour ne pas accumuler du bruit historique dans le panneau au fil des mois.
-      sensors: names.map((name) => {
-        const rows = wakes.filter((w) => w.sensor === name);
-        const pending = rows.filter((w) => w.status === "pending");
-        return { name, wakes: pending.length ? pending : rows.slice(-1), evalCounts: sensorEvalCounts(name, sinceMs) };
-      }),
-      registryError: error,
-      note: SENSORS_NOTE,
-      evalWindow: { sinceMs, windowMs: SENSOR_EVAL_WINDOW_MS, daemonBootedAt },
-    });
     return true;
   }
   if (pathname === "/api/context" && req.method === "GET") {
@@ -202,8 +159,6 @@ async function handleApi(req, res, pathname, query) {
     return true;
   }
   if (pathname === "/api/dream-prompt" && req.method === "GET") {
-    // Vraies sessions Dream journalisées (source `dream`, depuis la PR harnais du 30/07) + le
-    // template reconstruit, qui reste le repli utile : « ce que recevrait une NOUVELLE session ».
     sendJson(res, 200, { ...dreamPromptTemplate(), sessions: listDreamSessions(limit) });
     return true;
   }
@@ -282,8 +237,8 @@ const server = http.createServer(async (req, res) => {
         sendJson(res, 200, { ok: true });
         return;
       }
-      // Connexion par lien (job #54) : `?pin=...` sur un chargement de page (GET, hors /api) vaut
-      // login — pose le cookie de session exactement comme le ferait le formulaire (même
+      // Connexion par lien : `?pin=...` sur un chargement de page (GET, hors /api) vaut login —
+      // pose le cookie de session exactement comme le ferait le formulaire (même
       // `pinMatches`/`issueToken`), pour qu'un lien du type <url>/?pin=123456 connecte en un clic.
       // Restreint aux pages (pas /api/*) : le PIN n'a rien à faire dans une query string d'appel
       // API généré par le front. Le client (public/app.js) nettoie ensuite la barre d'adresse
@@ -322,5 +277,5 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(config.port, "0.0.0.0", () => {
-  console.log(`[dashboard] en écoute sur :${config.port} (gate PIN ${gateEnabled() ? "activée" : "DÉSACTIVÉE"})`);
+  console.log(`[compagnon-dashboard] en écoute sur :${config.port} (gate PIN ${gateEnabled() ? "activée" : "DÉSACTIVÉE"})`);
 });

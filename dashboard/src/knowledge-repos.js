@@ -3,27 +3,20 @@ import { join } from "node:path";
 import { config } from "./config.js";
 
 /**
- * Knowledge repos de ton compagnon, lus DYNAMIQUEMENT depuis le registre du dépôt principal
+ * Knowledge repos de ton compagnon, lus DYNAMIQUEMENT depuis un registre du dépôt principal
  * (`knowledge/registry.json`, monté en lecture seule via `config.repoPath`) — jamais recopiés en
- * dur ici. Même principe que le panneau Sensors, qui lit le vrai registre plutôt qu'une liste
- * dupliquée : si tu ajoutes un repo au registre, ce panneau suit tout seul.
+ * dur ici. Si tu ajoutes un repo au registre, ce panneau suit tout seul, sans redéploiement.
  *
- * Piège vécu à éviter : ne fais jamais découvrir ces repos en explorant l'API GitHub à l'aveugle —
- * si tes clones vivent dans `knowledge/<nom>/` et sont git-ignorés du dépôt principal, ils sont
- * invisibles depuis GitHub seul. La source de vérité est TOUJOURS ton registre versionné
- * (`knowledge/registry.json`) : lis-le, ne devine pas.
+ * Optionnel : si tu n'as pas ce pattern (clones de dépôts privés chargés à la demande dans
+ * `knowledge/<nom>/`), ce panneau affiche simplement "registre introuvable" — pas une erreur.
  *
  * 🔒 EXPOSITION STRICTEMENT LIMITÉE AUX MÉTADONNÉES. Ce module renvoie le nom, le lien GitHub, les
- * domaines couverts, le `load_when` et le `status` — et RIEN d'autre :
- *  - `notes` (registre) : DÉLIBÉRÉMENT exclu — c'est typiquement là que vivent des détails
- *    d'accès/tokens sur un repo de connaissance personnelle. Aucune raison de faire transiter ça
- *    par une API HTTP, même derrière le PIN.
- *  - tout bloc de config annexe du registre (ex. `obsidian`, accès à un second cerveau) : exclu
- *    pour la même raison.
- *  - `path` : chemin local du clone, sans intérêt ici.
- *  - le CONTENU des repos n'est évidemment jamais lu (les clones ne sont même pas dans le dépôt
- *    monté) — certains knowledge repos peuvent contenir des données sensibles sur des tiers.
- *    Afficher un index n'est pas afficher le contenu — cette ligne ne bouge pas.
+ * domaines couverts, le `load_when` et le `status` — et RIEN d'autre. Si ton propre registre porte
+ * des champs additionnels (notes libres, détails d'accès/token, chemin local du clone…), garde-les
+ * EXCLUS de ce module : un registre de ce genre peut légitimement contenir l'emplacement d'un
+ * secret ou une remarque sur la sensibilité d'un domaine (ex. données concernant des tiers) —
+ * aucune raison de faire transiter ça par une API HTTP, même derrière le PIN. Le contenu des repos
+ * eux-mêmes n'est de toute façon jamais lu ici : afficher un index n'est pas afficher le contenu.
  */
 const REGISTRY_PATH = "knowledge/registry.json";
 
@@ -55,8 +48,9 @@ export function readKnowledgeRepos() {
       repos: list.map((r) => ({
         name: r.name ?? "(sans nom)",
         url: githubUrlFromRemote(r.remote),
-        // Le registre ne porte pas de champ visibilité par repo ici : "privé" est une propriété du
-        // lot (des knowledge repos perso), pas devinée repo par repo. Adapte si le tien diffère.
+        // Le registre ne porte typiquement pas de champ visibilité par repo (souvent tous privés,
+        // un usage perso) : si le tien varie, adapte cette ligne pour lire un champ dédié au lieu
+        // de la constante ci-dessous.
         visibility: "privé",
         domains: Array.isArray(r.domains) ? r.domains : [],
         loadWhen: typeof r.load_when === "string" ? r.load_when : null,

@@ -5,12 +5,12 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { config } from "./config.js";
-import { deepseekBalance, modelSettings, usageSummary } from "./db.js";
+import { deepseekBalance, listWakes, modelSettings, usageSummary } from "./db.js";
 
 // `db.js` ouvre paresseusement `config.dbPath` et cache le handle — on le rouvre à chaque test en
 // changeant `config.dbPath` (cf. `openedForPath` dans db.js) plutôt que de mocker `node:sqlite`.
 function withTestDb(seedFn, runFn) {
-  const dir = mkdtempSync(join(tmpdir(), "dashboard-db-"));
+  const dir = mkdtempSync(join(tmpdir(), "companion-dash-db-"));
   const dbPath = join(dir, "test.sqlite");
   const seed = new DatabaseSync(dbPath);
   seed.exec(`
@@ -48,8 +48,8 @@ test("usageSummary agrège coût total, par jour, par modèle/provider et par ca
       insert.run(now, "global", "s1", "claude", "claude-sonnet-5", 1.5);
       // job de fond DeepSeek, hier
       insert.run(now - day, "job", "s2", "deepseek", "deepseek-v4-flash", 0.02);
-      // cycle Dream Claude, il y a 10 jours (hors fenêtre 7j, dans la fenêtre 30j)
-      insert.run(now - 10 * day, "dream", "s3", "claude", "opus", 0.75);
+      // rituel nocturne Claude, il y a 10 jours (hors fenêtre 7j, dans la fenêtre 30j)
+      insert.run(now - 10 * day, "nightly", "s3", "claude", "opus", 0.75);
       // session hors fenêtre (40 jours) : ne doit compter nulle part
       insert.run(now - 40 * day, "global", "s4", "claude", "claude-sonnet-5", 99);
       // modèle inconnu (colonne jamais renseignée) : ne doit pas planter
@@ -76,7 +76,7 @@ test("usageSummary agrège coût total, par jour, par modèle/provider et par ca
       const byCategory = Object.fromEntries(summary.byCategory.map((r) => [r.category, r]));
       assert.ok(Math.abs(byCategory.sessions.usd - (1.5 + 0.1)) < 1e-9);
       assert.ok(Math.abs(byCategory.job.usd - 0.02) < 1e-9);
-      assert.ok(Math.abs(byCategory.dream.usd - 0.75) < 1e-9);
+      assert.ok(Math.abs(byCategory.nightly.usd - 0.75) < 1e-9);
     },
   );
 });
@@ -119,12 +119,12 @@ test("deepseekBalance renvoie null tant que le harnais n'a rien écrit, puis les
   );
 });
 
-test("modelSettings expose global/groupe/jobs/dream sans exposer le chat_id", () => {
-  // Fixture, pas le vrai identifiant de groupe : modelSettings() lit config.groupChatId au lieu
-  // d'une valeur codée en dur (cf. src/db.js), donc le test peut pointer vers n'importe quel id.
+test("modelSettings expose global/groupe/jobs/nightly sans exposer le chat_id du groupe", () => {
+  // Fixture, pas un vrai identifiant : modelSettings() lit config.groupScopeId au lieu d'une
+  // valeur codée en dur (cf. src/db.js), donc le test peut pointer vers n'importe quel id.
   const FIXTURE_GROUP_ID = "12345@g.us";
-  const prevGroupChatId = config.groupChatId;
-  config.groupChatId = FIXTURE_GROUP_ID;
+  const prevGroupScopeId = config.groupScopeId;
+  config.groupScopeId = FIXTURE_GROUP_ID;
   try {
     withTestDb(
       (seed) => {
@@ -135,13 +135,13 @@ test("modelSettings expose global/groupe/jobs/dream sans exposer le chat_id", ()
         insert.run(`engine:${FIXTURE_GROUP_ID}`, "codex", 1500);
         insert.run(`codex_model:${FIXTURE_GROUP_ID}`, "gpt-5.6-luna", 1500);
         insert.run("model:jobs", "opus", 2000);
-        insert.run("provider:dream", "deepseek", 3000);
-        insert.run("deepseek_model:dream", "deepseek-v4-flash", 3000);
+        insert.run("provider:nightly", "deepseek", 3000);
+        insert.run("deepseek_model:nightly", "deepseek-v4-flash", 3000);
         insert.run("model:336@g.us", "haiku", 4000);
       },
       () => {
         const scopes = Object.fromEntries(modelSettings().scopes.map((s) => [s.id, s]));
-        assert.deepEqual(Object.keys(scopes), ["global", "group", "jobs", "dream"]);
+        assert.deepEqual(Object.keys(scopes), ["global", "group", "jobs", "nightly"]);
         assert.equal(scopes.global.mode, "codex");
         assert.equal(scopes.global.settings.codexModel.value, "gpt-5.6-terra");
         assert.equal(scopes.global.settings.effort.value, "high");
@@ -150,13 +150,13 @@ test("modelSettings expose global/groupe/jobs/dream sans exposer le chat_id", ()
         assert.equal(scopes.group.settings.codexModel.value, "gpt-5.6-luna");
         assert.equal(scopes.jobs.mode, "claude");
         assert.equal(scopes.jobs.settings.model.value, "opus");
-        assert.equal(scopes.dream.mode, "deepseek");
-        assert.equal(scopes.dream.settings.deepseekModel.value, "deepseek-v4-flash");
+        assert.equal(scopes.nightly.mode, "deepseek");
+        assert.equal(scopes.nightly.settings.deepseekModel.value, "deepseek-v4-flash");
         assert.equal(JSON.stringify(modelSettings()).includes(FIXTURE_GROUP_ID), false);
       },
     );
   } finally {
-    config.groupChatId = prevGroupChatId;
+    config.groupScopeId = prevGroupScopeId;
   }
 });
 
@@ -173,7 +173,16 @@ test("modelSettings : une portée sans override affiche inherit, même si le glo
       assert.equal(scopes.global.mode, "codex");
       assert.equal(scopes.group.mode, "inherit");
       assert.equal(scopes.jobs.mode, "inherit");
-      assert.equal(scopes.dream.mode, "inherit");
+      assert.equal(scopes.nightly.mode, "inherit");
+    },
+  );
+});
+
+test("listWakes ne plante pas quand la base n'a pas de table `wakes` (schéma pas encore étendu)", () => {
+  withTestDb(
+    () => {},
+    () => {
+      assert.deepEqual(listWakes(), { pending: [], recent: [] });
     },
   );
 });

@@ -1,6 +1,6 @@
 # Déploiement auto-suffisant : conteneur app + tunnel Cloudflare "quick" dédié. Réseau propre à ce
-# projet — ce dashboard n'a besoin de parler à rien d'autre que la base SQLite et le dépôt git du
-# harnais, montés en lecture seule.
+# projet — ce dashboard n'a besoin de parler à rien d'autre que la base SQLite et le dépôt git de
+# ton harnais, montés en lecture seule.
 #
 # Secrets (ACCESS_PIN, ACCESS_SESSION_SECRET) : dans .env (git-ignoré), jamais committés.
 
@@ -13,29 +13,31 @@ services:
     restart: unless-stopped
     ports:
       - "127.0.0.1:${HOST_PORT:-8790}:8080"
-      # Seconde liaison, 172.17.0.1 : le gateway du bridge Docker PAR DÉFAUT (docker0), distinct du
-      # gateway d'un éventuel réseau Compose custom sur lequel tournerait un autre de tes services
-      # (ex. un reverse proxy/tunnel dans une AUTRE stack docker-compose). `extra_hosts:
-      # host.docker.internal:host-gateway` résout TOUJOURS vers docker0, quel que soit le réseau
-      # applicatif du conteneur appelant. Sans cette 2e liaison, un ingress externe pointé sur
-      # host.docker.internal:${HOST_PORT} peut tomber en 502 (le port n'était publié que sur
-      # 127.0.0.1). Trouvaille en usage réel — adapte/retire si ton architecture réseau diffère.
+      # Seconde liaison, 172.17.0.1 : le gateway du bridge Docker PAR DÉFAUT (docker0). Si un AUTRE
+      # conteneur (sur un réseau Docker distinct — un reverse-proxy, un tunnel séparé…) doit
+      # joindre ce service via `host.docker.internal`, cette adresse résout TOUJOURS vers docker0,
+      # quel que soit le réseau applicatif de ce conteneur appelant — pas forcément le gateway du
+      # réseau custom de CE projet. Sans cette 2e liaison, un tel appelant peut échouer à se
+      # connecter (le port n'étant publié que sur 127.0.0.1). Inutile si rien d'autre n'a besoin de
+      # joindre ce service par ce biais — retire la ligne dans ce cas.
       - "172.17.0.1:${HOST_PORT:-8790}:8080"
     environment:
       ACCESS_PIN: ${ACCESS_PIN}
       ACCESS_SESSION_SECRET: ${ACCESS_SESSION_SECRET}
-      DASHBOARD_DB_PATH: /data/compagnon.sqlite
+      DASHBOARD_DB_PATH: /data/companion.sqlite
       DASHBOARD_REPO_PATH: /repo
       DASHBOARD_DAEMON_HEALTH_URL: http://host.docker.internal:8787/health
       DASHBOARD_SETTINGS_URL: http://host.docker.internal:8787/settings
       DASHBOARD_SETTINGS_TOKEN: ${DASHBOARD_SETTINGS_TOKEN}
-      GROUP_CHAT_ID: ${GROUP_CHAT_ID}
+      GROUP_SCOPE_CHAT_ID: ${GROUP_SCOPE_CHAT_ID}
     volumes:
       # Base du harnais et dépôt git — LECTURE SEULE (:ro). Les valeurs par défaut ci-dessous sont
-      # des exemples ; définis toujours COMPAGNON_DB_PATH/COMPAGNON_REPO_PATH dans .env pour ton
-      # propre hôte.
-      - ${COMPAGNON_DB_PATH:-/home/<user>/mon-compagnon/data/compagnon.sqlite}:/data/compagnon.sqlite:ro
-      - ${COMPAGNON_REPO_PATH:-/home/<user>/mon-compagnon}:/repo:ro
+      # des exemples ; définis toujours HOST_DB_PATH/HOST_REPO_PATH dans .env pour ton propre hôte.
+      # Le harnais fourni par ce starter (harness/src/scheduler.ts) écrit déjà
+      # harness/data/wakes.sqlite — pointe HOST_DB_PATH dessus pour activer au moins le panneau
+      # Réveils (voir dashboard/README.md, section "Contrat de données").
+      - ${HOST_DB_PATH:-/home/<user>/mon-compagnon/harness/data/wakes.sqlite}:/data/companion.sqlite:ro
+      - ${HOST_REPO_PATH:-/home/<user>/mon-compagnon}:/repo:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks: [default]

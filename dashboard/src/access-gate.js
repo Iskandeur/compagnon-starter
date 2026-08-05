@@ -1,11 +1,10 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { config } from "./config.js";
 
-/** Gate PIN devant le dashboard : un cookie signé HMAC, sans état serveur (pas de session store à
- *  invalider — un logout jette juste le cookie côté client). Choix délibéré d'un mécanisme simple
- *  plutôt qu'un vrai système d'auth pour ce besoin (PIN devant un service exposé par tunnel). */
+/** Gate PIN : un cookie de session signé HMAC, sans état serveur (pas de session store à
+ *  invalider — un logout jette juste le cookie côté client). */
 
-export const COOKIE_NAME = "compagnon_dash_session";
+export const COOKIE_NAME = "dashboard_session";
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 jours
 
 export const gateEnabled = () => config.accessPin.length > 0;

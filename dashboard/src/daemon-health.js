@@ -1,9 +1,9 @@
 import { config } from "./config.js";
 
-/** Sonde la route GET /health déjà exposée par harness/src/gateway.ts (serveur webhook du
- *  daemon, port 8787 sur l'hôte). Pas d'accès process/`/proc` requis → pas de privilège
- *  supplémentaire pour ce conteneur (pas de `--pid=host`). Timeout court : un daemon down ne
- *  doit pas faire pendre le dashboard. */
+/** Sonde une route GET /health exposée par ton daemon (si tu en as une — pas fournie par défaut
+ *  par ce starter, cf. README). Pas d'accès process/`/proc` requis → pas de privilège
+ *  supplémentaire pour ce conteneur (pas de `--pid=host`). Timeout court : un daemon down ne doit
+ *  pas faire pendre le dashboard. */
 export async function probeDaemon(timeoutMs = 2000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
