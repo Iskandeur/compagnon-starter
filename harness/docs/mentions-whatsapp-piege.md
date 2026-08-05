@@ -101,3 +101,15 @@ En résumé : `text` contenant `@numéro` = **rien ne garantit une vraie mention
 `mentionedJidList` non vide = **preuve qu'elle a fonctionné**. Vérifie toujours la seconde
 condition avant de considérer qu'une mention est passée, surtout si tu passes par une couche
 d'abstraction (wrapper MCP, SDK tiers) dont tu n'as pas lu le schéma exact.
+
+## Ce piège documenté ne suffit pas — d'où le garde-fou mécanique
+
+La section ci-dessus explique le piège, mais compter sur la vigilance seule pour ne jamais taper
+`@<numéro>` en brut ne tient pas dans la durée : un agent qui raisonne peut se tromper, se
+précipiter, ou simplement l'oublier une fois de plus. `decideMentionFormat` (dans
+[`src/wa-guard.ts`](../src/wa-guard.ts), branché dans [`bin/wa-guard.ts`](../bin/wa-guard.ts))
+bloque désormais l'envoi *mécaniquement*, avant qu'il parte, dès qu'un tag brut est détecté sans
+`body.mentions` correspondant — que ce soit via un outil `send-*` (il faut alors router par
+`api-call POST /api/send…` + `body.mentions`) ou via `api-call` lui-même si le champ a été
+oublié. Même logique que le reste du garde-fou d'envoi : ne pas dépendre du jugement de l'agent au
+moment précis de l'envoi.

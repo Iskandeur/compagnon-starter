@@ -1,6 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { DEFAULT_LIMITS, OWNER_CHAT, chatOf, decide, groupUnlocked, isSendTool, parseGroupAllowlist, parseRestrictedGroups, type SendEvent } from "./wa-guard.ts";
+import { DEFAULT_LIMITS, OWNER_CHAT, chatOf, decide, decideMentionFormat, groupUnlocked, isApiCallSend, isSendTool, parseGroupAllowlist, parseRestrictedGroups, type SendEvent } from "./wa-guard.ts";
+
+const FAKE_LID = "622000000000000"; // numéro fictif, format lid — jamais un vrai contact
 
 const T0 = 1_800_000_000_000; // instant fixe (pas de Date.now dans les tests)
 const req = (over: Partial<Parameters<typeof decide>[1]> = {}) => ({
@@ -99,4 +101,52 @@ test("chatOf lit le chatId, sinon '?'", () => {
   assert.equal(chatOf({ chatId: "x@c.us", text: "yo" }), "x@c.us");
   assert.equal(chatOf(undefined), "?");
   assert.equal(chatOf({ text: "yo" }), "?");
+});
+
+test("chatOf lit le chatId niché dans body (api-call)", () => {
+  assert.equal(chatOf({ path: "/api/sendText", method: "POST", body: { chatId: "x@g.us", text: "yo" } }), "x@g.us");
+});
+
+test("isApiCallSend : reconnaît un envoi POST vers un endpoint /api/send…", () => {
+  assert.ok(isApiCallSend("mcp__whatsapp_own__api-call", { method: "POST", path: "/api/sendText" }));
+  assert.ok(isApiCallSend("mcp__whatsapp_human__api-call", { method: "post", path: "/api/sendText?foo=bar" }));
+  assert.ok(isApiCallSend("mcp__whatsapp_own__api-call", { method: "POST", path: "/api/own/status/text" }));
+  assert.ok(!isApiCallSend("mcp__whatsapp_own__api-call", { method: "GET", path: "/api/sendText" }));
+  assert.ok(!isApiCallSend("mcp__whatsapp_own__api-call", { method: "POST", path: "/api/sessions" }));
+  assert.ok(!isApiCallSend("mcp__whatsapp_own__chats-get-messages", { method: "POST", path: "/api/sendText" }));
+});
+
+test("decideMentionFormat : refuse un tag brut envoyé via send-text", () => {
+  const d = decideMentionFormat("mcp__whatsapp_own__send-text", { chatId: "x@c.us", text: `\n@${FAKE_LID} ton avis ?` });
+  assert.equal(d.allow, false);
+  assert.match(d.reason, /champ mentions/);
+});
+
+test("decideMentionFormat : laisse passer un texte sans tag brut", () => {
+  const d = decideMentionFormat("mcp__whatsapp_own__send-text", { chatId: "x@c.us", text: "Michel, ton avis ?" });
+  assert.equal(d.allow, true);
+});
+
+test("decideMentionFormat : api-call avec tag brut mais sans body.mentions → refus", () => {
+  const d = decideMentionFormat("mcp__whatsapp_own__api-call", {
+    method: "POST",
+    path: "/api/sendText",
+    body: { chatId: "x@g.us", text: `@${FAKE_LID} ton avis ?` },
+  });
+  assert.equal(d.allow, false);
+  assert.match(d.reason, /body\.mentions/);
+});
+
+test("decideMentionFormat : api-call avec body.mentions rempli → autorisé", () => {
+  const d = decideMentionFormat("mcp__whatsapp_own__api-call", {
+    method: "POST",
+    path: "/api/sendText",
+    body: { chatId: "x@g.us", text: `@${FAKE_LID} ton avis ?`, mentions: [`${FAKE_LID}@lid`] },
+  });
+  assert.equal(d.allow, true);
+});
+
+test("decideMentionFormat : ignore les outils qui ne sont pas des envois", () => {
+  const d = decideMentionFormat("mcp__whatsapp_own__chats-get-messages", { text: `@${FAKE_LID}` });
+  assert.equal(d.allow, true);
 });

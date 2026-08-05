@@ -79,3 +79,46 @@ test("hook : canal humain (impersonation) → toujours refusé, même en 1:1", (
   });
   assert.equal(denied(r.stdout ?? ""), true, "le canal humain n'envoie jamais directement");
 });
+
+const FAKE_LID = "622000000000000"; // numéro fictif, format lid — jamais un vrai contact
+
+test("hook : tag brut via send-text → refusé (garde-fou mentions), rien journalisé", () => {
+  const home = mkdtempSync(join(tmpdir(), "compagnon-hook-mention-"));
+  const r = spawnSync(process.execPath, [HOOK], {
+    input: JSON.stringify({ tool_name: "mcp__whatsapp_own__send-text", tool_input: { chatId: OWNER, text: `@${FAKE_LID} ton avis ?` } }),
+    encoding: "utf8",
+    env: { ...process.env, COMPAGNON_HOME: home, WA_GUARD_OWNER: OWNER },
+  });
+  assert.equal(denied(r.stdout ?? ""), true, "un tag brut ne doit jamais partir");
+  assert.match(JSON.parse(r.stdout).hookSpecificOutput.permissionDecisionReason, /garde-fou tags/);
+});
+
+test("hook : api-call POST /api/sendText avec tag brut mais sans body.mentions → refusé", () => {
+  const home = mkdtempSync(join(tmpdir(), "compagnon-hook-mention-apicall-"));
+  const r = spawnSync(process.execPath, [HOOK], {
+    input: JSON.stringify({
+      tool_name: "mcp__whatsapp_own__api-call",
+      tool_input: { path: "/api/sendText", method: "POST", body: { chatId: OWNER, text: `@${FAKE_LID} ton avis ?` } },
+    }),
+    encoding: "utf8",
+    env: { ...process.env, COMPAGNON_HOME: home, WA_GUARD_OWNER: OWNER },
+  });
+  assert.equal(denied(r.stdout ?? ""), true, "body.mentions manquant doit bloquer l'envoi");
+});
+
+test("hook : api-call POST /api/sendText avec body.mentions rempli → autorisé", () => {
+  const home = mkdtempSync(join(tmpdir(), "compagnon-hook-mention-ok-"));
+  const r = spawnSync(process.execPath, [HOOK], {
+    input: JSON.stringify({
+      tool_name: "mcp__whatsapp_own__api-call",
+      tool_input: {
+        path: "/api/sendText",
+        method: "POST",
+        body: { chatId: OWNER, text: `@${FAKE_LID} ton avis ?`, mentions: [`${FAKE_LID}@lid`] },
+      },
+    }),
+    encoding: "utf8",
+    env: { ...process.env, COMPAGNON_HOME: home, WA_GUARD_OWNER: OWNER },
+  });
+  assert.equal(denied(r.stdout ?? ""), false, `mentions déclarée = autorisé, stdout=${r.stdout} stderr=${r.stderr}`);
+});
