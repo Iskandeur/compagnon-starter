@@ -14,8 +14,8 @@ const RECORD_SEP = "\x1e";
 // l'exception à CETTE invocation (pas de `git config --global` qui polluerait un état partagé).
 const SAFE_DIR_ARGS = ["-c", `safe.directory=${config.repoPath}`];
 
-/** Derniers commits touchant journal/, memoire/ ou competences/ — « ce que j'ai appris récemment ».
- *  Lecture seule (`git log`), sur le dépôt monté en `:ro`. */
+/** Derniers commits touchant journal/, memoire/ ou competences/ — « ce que le compagnon a appris
+ *  récemment ». Lecture seule (`git log`), sur le dépôt monté en `:ro`. */
 export async function recentLearningCommits(limit = 20) {
   const fmt = `%H${FIELD_SEP}%an${FIELD_SEP}%ad${FIELD_SEP}%s${RECORD_SEP}`;
   try {

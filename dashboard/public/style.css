@@ -62,12 +62,11 @@ ul#commits-body li:last-child { border-bottom: none; }
 .hash { font-family: ui-monospace, monospace; color: #8b949e; font-size: .8rem; word-break: break-all; }
 footer { text-align: center; padding: 1.5rem; }
 .empty { color: #8b949e; font-size: .85rem; padding: .4rem 0; }
-.sensor-note { margin-top: .6rem; }
 .context-file { border: 1px solid #21262d; border-radius: 8px; padding: .5rem .7rem; margin-bottom: .6rem; }
 .context-file:last-child { margin-bottom: 0; }
 .context-file summary { cursor: pointer; font-weight: 500; }
 .context-file p { margin: .4rem 0; }
-/* Knowledge repos (v6) : une entrée = nom + lien + visibilité + domaines couverts. Métadonnées
+/* Knowledge repos : une entrée = nom + lien + visibilité + domaines couverts. Métadonnées
    seulement — le contenu de ces dépôts privés n'est jamais lu ni affiché. */
 .knowledge-repo { border-top: 1px solid #21262d; padding: .55rem 0; }
 .knowledge-repo:last-child { padding-bottom: 0; }
@@ -94,8 +93,8 @@ footer { text-align: center; padding: 1.5rem; }
   overflow-wrap: anywhere;
 }
 
-/* Usage & billing (v7) : pas de lib de charting (zéro dépendance) — une barre horizontale en CSS
-   pur, largeur proportionnelle au max de la série. Simple et suffisant pour repérer un pic. */
+/* Usage & billing : pas de lib de charting (zéro dépendance) — une barre horizontale en CSS pur,
+   largeur proportionnelle au max de la série. Simple et suffisant pour repérer un pic. */
 .bar-row { display: grid; grid-template-columns: 6.5rem 1fr 4.5rem; align-items: center; gap: .5rem; padding: .2rem 0; font-size: .82rem; }
 .bar-row .bar-label { color: #8b949e; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bar-track { background: #21262d; border-radius: 4px; height: .7rem; overflow: hidden; }
@@ -103,7 +102,7 @@ footer { text-align: center; padding: 1.5rem; }
 .bar-fill.codex { background: #f0883e; }
 .bar-fill.deepseek { background: #bc8cff; }
 .bar-fill.job { background: #d29922; }
-.bar-fill.dream { background: #3fb950; }
+.bar-fill.nightly { background: #3fb950; }
 .bar-row .bar-value { text-align: right; font-variant-numeric: tabular-nums; }
 
 /* Réglages modèle : table compacte, mêmes conventions visuelles que le reste du dashboard. */

@@ -1,6 +1,6 @@
-// Connexion par lien (job #54) : le serveur a déjà posé le cookie de session à partir de
-// `?pin=...` avant de servir cette page (src/server.js) — il ne reste qu'à nettoyer la barre
-// d'adresse pour que le PIN ne traîne pas dans l'historique navigateur plus que le strict chargement.
+// Connexion par lien : le serveur a déjà posé le cookie de session à partir de `?pin=...` avant
+// de servir cette page (src/server.js) — il ne reste qu'à nettoyer la barre d'adresse pour que le
+// PIN ne traîne pas dans l'historique navigateur plus que le strict chargement.
 (function stripPinFromAddressBar() {
   const url = new URL(location.href);
   if (!url.searchParams.has("pin")) return;
@@ -27,26 +27,6 @@ function fmtRelative(ts) {
   const hours = Math.round(mins / 60);
   if (hours < 48) return `il y a ${hours} h`;
   return `il y a ${Math.round(hours / 24)} j`;
-}
-
-/** Comme fmtRelative mais pour une échéance FUTURE (ex. prochain due_at d'un sensor). */
-function fmtEta(ts) {
-  if (!ts) return "—";
-  const diffMs = ts - Date.now();
-  if (diffMs <= 0) return "en retard";
-  const mins = Math.round(diffMs / 60000);
-  if (mins < 1) return "imminent";
-  if (mins < 60) return `dans ${mins} min`;
-  const hours = Math.round(mins / 60);
-  if (hours < 48) return `dans ${hours} h`;
-  return `dans ${Math.round(hours / 24)} j`;
-}
-
-function fmtCadence(ms) {
-  if (!ms) return "—";
-  const mins = Math.round(ms / 60000);
-  if (mins < 60) return `${mins} min`;
-  return `${Math.round(mins / 60)} h`;
 }
 
 function badge(status) {
@@ -104,15 +84,10 @@ const MODEL_OPTIONS = {
     { value: "opus", label: "opus" },
     { value: "sonnet", label: "sonnet" },
     { value: "haiku", label: "haiku" },
-    { value: "fable", label: "fable" },
   ],
   codex: [
     { value: "auto", label: "défaut Codex" },
-    { value: "sol", label: "sol" },
-    { value: "terra", label: "terra" },
-    { value: "luna", label: "luna" },
     { value: "gpt-5.5", label: "gpt-5.5" },
-    { value: "gpt-5.4", label: "gpt-5.4" },
     { value: "mini", label: "mini" },
   ],
   deepseek: [
@@ -260,24 +235,12 @@ async function loadModelSetup() {
 async function loadStatus() {
   const s = await getJson("/api/status");
   const daemonBadge = s.daemon?.up ? badge("ok") : badge("down");
-  const quota = s.copilotQuota;
   document.getElementById("status-body").innerHTML = `
     <div class="k">Daemon</div><div>${daemonBadge}</div>
     <div class="k">SHA déployé</div><div class="hash">${escapeHtml(s.daemonGitSha ?? "inconnu")}</div>
     <div class="k">Dernière activité</div><div>${fmtRelative(s.lastActivityAt)} <span class="muted small">(${fmtTime(s.lastActivityAt)})</span></div>
     <div class="k">Base SQLite</div><div>${s.db.ok ? badge("ok") : `${badge("down")} <span class="small muted">${escapeHtml(s.db.error ?? "")}</span>`}</div>
   `;
-  const quotaBody = document.getElementById("quota-body");
-  if (!quota) {
-    quotaBody.innerHTML = `<div class="empty">aucune donnée ce mois-ci</div>`;
-  } else {
-    const pct = Math.min(100, Math.round((quota.used / quota.budget) * 100));
-    quotaBody.innerHTML = `
-      <div class="grid-2">
-        <div class="k">Mois</div><div>${escapeHtml(quota.month)}</div>
-        <div class="k">Utilisé</div><div>${quota.used.toFixed(2)} / ${quota.budget} (${pct}%) <span class="muted small">— seuil sûr ${quota.safeLimit}</span></div>
-      </div>`;
-  }
 }
 
 async function loadJobs() {
@@ -304,7 +267,6 @@ async function loadWakes() {
       <td>${w.id}</td>
       <td>${fmtTime(w.due_at)}</td>
       <td class="truncate" title="${escapeHtml(w.intent)}">${escapeHtml(w.intent)}</td>
-      <td>${escapeHtml(w.created_by)}</td>
       <td>${w.recurrence_ms ? `${Math.round(w.recurrence_ms / 60000)} min` : "—"}</td>
     </tr>`,
     "aucun réveil en attente",
@@ -320,55 +282,6 @@ async function loadWakes() {
     </tr>`,
     "aucun réveil récent",
   );
-}
-
-/** Rend le décompte réel `sensor_evals` d'un sensor pour la fenêtre en cours (job #54) — "historique
- *  en cours de constitution" si la fenêtre est bornée au boot du daemon et qu'aucune évaluation n'y
- *  est encore tombée, plutôt qu'un "0" trompeur sans contexte. */
-function fmtEvalCounts(counts, evalWindow) {
-  const total = (counts?.changedTrue ?? 0) + (counts?.changedFalse ?? 0);
-  const buildingSince = evalWindow?.daemonBootedAt && evalWindow.daemonBootedAt === evalWindow.sinceMs;
-  if (total === 0) {
-    return buildingSince
-      ? `<span class="muted small">historique en cours de constitution depuis ${escapeHtml(fmtTime(evalWindow.daemonBootedAt))}</span>`
-      : `<span class="muted small">aucune évaluation sur la fenêtre</span>`;
-  }
-  const t = counts.changedTrue;
-  return `🔇 ${counts.changedFalse} silencieux · 🔔 ${t} réveil${t > 1 ? "s" : ""} réel${t > 1 ? "s" : ""}`;
-}
-
-async function loadSensors() {
-  const { sensors, registryError, note, evalWindow } = await getJson("/api/sensors");
-  document.getElementById("sensors-note").textContent = note ?? "";
-  const tbody = document.getElementById("sensors-body");
-  if (registryError) {
-    tbody.innerHTML = `<tr><td colspan="6" class="empty">registre des sensors illisible : ${escapeHtml(registryError)}</td></tr>`;
-    return;
-  }
-  if (!sensors.length) {
-    tbody.innerHTML = `<tr><td colspan="6" class="empty">aucun sensor enregistré</td></tr>`;
-    return;
-  }
-  tbody.innerHTML = sensors
-    .map((s) => {
-      const activity = fmtEvalCounts(s.evalCounts, evalWindow);
-      if (!s.wakes.length) {
-        return `<tr><td>${escapeHtml(s.name)}</td><td colspan="4" class="empty">aucun wake actif ne porte ce sensor</td><td>${activity}</td></tr>`;
-      }
-      return s.wakes
-        .map(
-          (w) => `<tr>
-            <td>${escapeHtml(s.name)}</td>
-            <td>${fmtCadence(w.recurrence_ms)}</td>
-            <td>${fmtTime(w.due_at)} <span class="muted small">(${fmtEta(w.due_at)})</span></td>
-            <td>#${w.id}</td>
-            <td>${badge(w.status)}</td>
-            <td>${activity}</td>
-          </tr>`,
-        )
-        .join("");
-    })
-    .join("");
 }
 
 async function loadContext() {
@@ -439,14 +352,13 @@ async function loadGithub() {
     </div>`;
 }
 
-/** Les VRAIES sessions Dream journalisées (source `dream`), cliquables via #/sessions/<id> comme
- *  n'importe quelle autre session. Vide tant que le daemon n'a pas redémarré avec la journalisation
- *  ET qu'un cycle nocturne n'a pas tourné : on le dit, plutôt que d'afficher un tableau vide muet. */
+/** Les occurrences journalisées d'un rituel nocturne (source `nightly`), cliquables via
+ *  #/sessions/<id> comme n'importe quelle autre session. Vide tant que ton harnais n'a pas ce
+ *  concept, ou ne l'a pas encore journalisé. */
 function dreamSessionsBlock(sessions) {
   if (!sessions?.length) {
-    return `<p class="empty">aucune session Dream journalisée pour l'instant — la journalisation
-      (<code>source: dream</code>) date du 30/07/2026 côté harnais : la première ligne apparaîtra
-      après le prochain cycle nocturne.</p>`;
+    return `<p class="empty">aucune occurrence journalisée pour l'instant — voir src/dream-prompt.js
+      et le contrat de données dans README.md si tu veux activer ce panneau.</p>`;
   }
   const rows = sessions
     .map(
@@ -468,9 +380,9 @@ function dreamSessionsBlock(sessions) {
 async function loadDreamPrompt() {
   const d = await getJson("/api/dream-prompt");
   const container = document.getElementById("dream-prompt-body");
-  const sessions = `<h3 class="small muted">Sessions Dream journalisées</h3>${dreamSessionsBlock(d.sessions)}`;
+  const sessions = `<h3 class="small muted">Occurrences journalisées</h3>${dreamSessionsBlock(d.sessions)}`;
   if (!d.present) {
-    container.innerHTML = `${sessions}<p class="empty">harness/persona/dream.md introuvable dans le dépôt monté.</p>`;
+    container.innerHTML = `${sessions}<p class="empty">${escapeHtml(d.source)} introuvable dans le dépôt monté (panneau optionnel).</p>`;
     return;
   }
   const newCycleBody = d.truncated
@@ -485,13 +397,13 @@ async function loadDreamPrompt() {
       ${newCycleBody}
     </details>
     <details class="context-file">
-      <summary>Reprise après coupure quota</summary>
+      <summary>Reprise après coupure</summary>
       <pre>${escapeHtml(d.resume)}</pre>
     </details>`;
 }
 
-/** Lit l'id de session ciblé dans le hash `#/sessions/<id>` (lien envoyé par /session list côté
- *  harnais, ou copié depuis la table ci-dessous) — jamais transmis au serveur, purement client. */
+/** Lit l'id de session ciblé dans le hash `#/sessions/<id>` — jamais transmis au serveur, purement
+ *  client. */
 function sessionIdFromHash() {
   const m = location.hash.match(/^#\/sessions\/([^/?]+)/);
   return m ? decodeURIComponent(m[1]) : null;
@@ -558,7 +470,7 @@ function barRows(rows, formatLabel) {
     .join("");
 }
 
-const CATEGORY_LABEL = { sessions: "Sessions (interactif)", job: "Jobs de fond", dream: "Cycle Dream" };
+const CATEGORY_LABEL = { sessions: "Sessions (interactif)", job: "Jobs de fond", nightly: "Rituel nocturne" };
 
 async function loadUsage() {
   const u = await getJson("/api/usage?days=30");
@@ -580,7 +492,7 @@ async function loadUsage() {
   const byCategoryRows = (u.byCategory ?? []).map((r) => ({
     label: CATEGORY_LABEL[r.category] ?? r.category,
     usd: r.usd ?? 0,
-    cls: r.category === "job" ? "job" : r.category === "dream" ? "dream" : "",
+    cls: r.category === "job" ? "job" : r.category === "nightly" ? "nightly" : "",
   }));
   document.getElementById("usage-by-category").innerHTML = barRows(byCategoryRows, (r) => r.label);
 
@@ -589,7 +501,7 @@ async function loadUsage() {
     balanceEl.textContent = `Solde DeepSeek (API native) : ${u.deepseekBalance.usd.toFixed(2)} $ — vérifié ${fmtRelative(u.deepseekBalance.checkedAt)}`;
   } else {
     balanceEl.textContent =
-      "Solde DeepSeek live : pas encore branché — le daemon n'écrit pas aujourd'hui ce solde en base (voir README).";
+      "Solde DeepSeek live : pas branché — ton daemon n'écrit pas ce solde en base (voir README).";
   }
 }
 
@@ -629,7 +541,6 @@ async function refreshAll() {
     loadStatus(),
     loadJobs(),
     loadWakes(),
-    loadSensors(),
     loadUsage(),
     loadSessions(),
     loadApprovals(),
@@ -646,10 +557,10 @@ document.getElementById("session-focus-close").addEventListener("click", (e) => 
 });
 window.addEventListener("hashchange", loadSessionFocus);
 
-// Contexte de session, liens GitHub, panneau Dream : chargés une fois, PAS sur l'intervalle de 30 s
-// — re-rendre refermerait un <details> que l'utilisateur vient d'ouvrir. C'est du contenu quasi
-// statique (fichiers du dépôt monté, registre knowledge) ; seule la liste des sessions Dream bouge,
-// une fois par nuit — un rechargement de page suffit largement à la voir apparaître.
+// Contexte de session, liens GitHub, panneau rituel nocturne : chargés une fois, PAS sur
+// l'intervalle de 30 s — re-rendre refermerait un <details> que l'utilisateur vient d'ouvrir.
+// C'est du contenu quasi statique (fichiers du dépôt monté, registre knowledge) ; seule la liste
+// des occurrences bouge, rarement — un rechargement de page suffit largement à la voir apparaître.
 loadContext();
 loadGithub();
 loadDreamPrompt();

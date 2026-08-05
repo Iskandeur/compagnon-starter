@@ -4,18 +4,14 @@ import { config } from "./config.js";
 
 /**
  * Fichiers STATIQUES du dépôt (monté en lecture seule) qui composent le contexte par défaut
- * injecté à chaque réveil normal du harnais — cf. `harness/src/engine.ts` (buildArgs) et
- * `harness/src/main.ts` :
- *  - `CLAUDE.md` et `.claude/settings.json` : auto-chargés par le CLI Claude Code lui-même
- *    (le process tourne avec le dépôt comme répertoire de travail) — pas lus par du code harnais.
- *  - `harness/persona/corps-vps.md` : injecté explicitement par le harnais via
- *    `--append-system-prompt-file`, sur CHAQUE réveil (wake/whatsapp/agent/cron).
- *  - `harness/persona/dream.md` : cas particulier — seulement pour le cycle nocturne Dream,
- *    PAS injecté sur un réveil normal. Listé ici pour la transparence, avec sa note distincte.
+ * injecté à chaque réveil du harnais :
+ *  - `CLAUDE.md` et `.claude/settings.json` : auto-chargés par le CLI Claude Code lui-même (le
+ *    process tourne avec le dépôt comme répertoire de travail) — pas lus par du code harnais.
  *
- * Contenu vérifié à la main avant d'ajouter ce module (grep secrets/tokens/clés) : ce sont des
- * fichiers d'identité/protocole statiques, pas de conversation ni de secret. Taille plafonnée par
- * prudence si l'un de ces fichiers grossissait un jour sans qu'on y pense.
+ * Étends `FILES` ci-dessous avec tes propres fichiers injectés explicitement par TON harnais (un
+ * prompt de personnalité passé via `--append-system-prompt-file`, un prompt de rituel nocturne…).
+ * Relis-en le contenu à la main avant de l'ajouter (pas de secret/token dedans) — comme pour
+ * n'importe quel fichier exposé derrière ce dashboard.
  */
 const MAX_BYTES = 100_000;
 
@@ -29,16 +25,6 @@ const FILES = [
     path: ".claude/settings.json",
     label: ".claude/settings.json",
     note: "Permissions (allow/deny) et hooks — auto-chargé par le CLI Claude Code, même mécanisme que CLAUDE.md.",
-  },
-  {
-    path: "harness/persona/corps-vps.md",
-    label: "harness/persona/corps-vps.md",
-    note: "Injecté explicitement par le harnais via --append-system-prompt-file, sur chaque réveil normal.",
-  },
-  {
-    path: "harness/persona/dream.md",
-    label: "harness/persona/dream.md",
-    note: "Cas particulier : seulement pour le cycle nocturne Dream, pas injecté sur un réveil normal (wake/whatsapp/agent/cron).",
   },
 ];
 

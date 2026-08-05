@@ -1,12 +1,12 @@
 <!doctype html>
 <html lang="fr"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Dashboard opérateur</title>
+<title>Compagnon — dashboard opérateur</title>
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
 <header>
-  <h1>Dashboard <span class="muted">— vue opérateur</span></h1>
+  <h1>Dashboard <span class="muted">— opérateur</span></h1>
   <div id="last-refresh" class="muted small"></div>
 </header>
 
@@ -24,20 +24,14 @@
   <section class="card" id="card-model-setup">
     <h2>Réglages modèle</h2>
     <p class="small muted">
-      Pilote la conversation principale, le groupe, les jobs de fond et le cycle Dream. « Hérite du
-      global » signifie que la portée n'a pas de réglage propre et reprend la portée Conversation
-      au moment de chaque nouveau lancement — pas simplement la ligne placée juste au-dessus. Les
-      quatre portées peuvent choisir Claude, Codex ou DeepSeek ; Jobs/Dream suivent donc réellement
-      le moteur hérité ou sélectionné ici. Choisir Claude explicitement si tu veux les garder sur
-      Claude même quand la conversation est en Codex.
+      Pilote la conversation principale, un groupe optionnel, les jobs de fond et un rituel
+      nocturne optionnel. « Hérite du global » signifie que la portée n'a pas de réglage propre et
+      reprend la portée Conversation au moment de chaque nouveau lancement — pas simplement la
+      ligne placée juste au-dessus. Chaque portée peut choisir Claude, Codex ou DeepSeek ; adapte
+      la liste des moteurs à ceux que ton harnais sait réellement piloter.
     </p>
     <div id="model-setup-body">chargement…</div>
     <p class="small muted" id="model-setup-result"></p>
-  </section>
-
-  <section class="card" id="card-quota">
-    <h2>Quota Copilot (estimation)</h2>
-    <div id="quota-body">chargement…</div>
   </section>
 
   <section class="card" id="card-jobs">
@@ -50,9 +44,14 @@
 
   <section class="card" id="card-wakes">
     <h2>Réveils programmés</h2>
+    <p class="small muted">
+      Ce panneau fonctionne dès le premier déploiement : il lit exactement la table
+      <code>wakes</code> que <code>harness/src/scheduler.ts</code> de ce starter écrit déjà (voir
+      <a href="../harness/docs/self-scheduling.md">self-scheduling.md</a>).
+    </p>
     <h3 class="small muted">En attente</h3>
     <div class="table-wrap">
-      <table><thead><tr><th>#</th><th>Échéance</th><th>Intent</th><th>Créé par</th><th>Récurrence</th></tr></thead>
+      <table><thead><tr><th>#</th><th>Échéance</th><th>Intent</th><th>Récurrence</th></tr></thead>
         <tbody id="wakes-pending-body"></tbody></table>
     </div>
     <h3 class="small muted">Récents (déclenchés/annulés)</h3>
@@ -62,39 +61,13 @@
     </div>
   </section>
 
-  <section class="card" id="card-sensors">
-    <h2>Sensors <span class="small muted">(pré-filtres zéro-token)</span></h2>
-    <p class="small muted">
-      Un sensor tourne en pur Node (<code>harness/src/sensors/</code>) juste avant un réveil et
-      décide s'il faut réveiller une vraie session Claude (<code>changed:true</code>) ou rester
-      silencieux sans dépenser de token (<code>changed:false</code>).
-    </p>
-    <div class="table-wrap">
-      <table><thead><tr><th>Sensor</th><th>Cadence</th><th>Prochaine échéance</th><th>Wake</th><th>Statut</th><th>Activité (fenêtre)</th></tr></thead>
-        <tbody id="sensors-body"></tbody></table>
-    </div>
-    <p class="small muted sensor-note" id="sensors-note"></p>
-    <p class="small muted sensor-note">
-      <strong>Trouvaille du 30/07</strong> : un bug faisait que la veille gtasks pouvait
-      re-déclencher une vraie session toutes les ~2 min pendant des heures quand une note était
-      écrite hors du sensor sans marquer <code>seen</code> — le sensor voyait
-      <code>changed:true</code> en continu au lieu de rester silencieux. Corrigé le 30/07
-      (<code>harness/bin/gtasks.ts</code> + <code>src/lib/gtasks.ts::markSeen</code>) : les
-      écritures via l'outil gtasks marquent désormais elles-mêmes <code>seen</code>. C'est
-      précisément ce genre de dérive que la colonne <strong>Activité</strong> ci-dessus rend
-      désormais vérifiable (table <code>sensor_evals</code> côté harnais, depuis le 30/07) —
-      plutôt qu'à devoir le croire sur parole.
-    </p>
-  </section>
-
   <section class="card" id="card-usage">
     <h2>💰 Usage &amp; billing <span class="small muted">(coût réel, session_log)</span></h2>
     <p class="small muted">
-      Coût réel mesuré par le harnais pour chaque session/réveil/job de fond/cycle Dream, Claude
-      comme DeepSeek (<code>session_log.last_cost_usd</code>). Codex est à <code>0 $</code> ici
-      parce que le CLI Codex ne donne pas de coût dollar au harnais ; ce n'est pas une preuve
-      d'absence d'activité. Couvre les jobs de fond depuis le 31/07/2026 seulement (avant cette
-      date, leur coût n'était pas journalisé).
+      Coût réel mesuré par ton harnais pour chaque session/réveil/job de fond/rituel nocturne,
+      Claude comme DeepSeek (<code>session_log.last_cost_usd</code>). Codex est à <code>0 $</code>
+      ici si ton CLI Codex ne donne pas de coût dollar au harnais ; ce n'est pas une preuve
+      d'absence d'activité.
     </p>
     <div class="grid-2" id="usage-totals">chargement…</div>
     <h3 class="small muted">Par jour (30 derniers jours)</h3>
@@ -123,18 +96,18 @@
   </section>
 
   <section class="card" id="card-commits">
-    <h2>Ce que j'ai appris récemment <span class="small muted">(journal/ memoire/ competences/)</span></h2>
+    <h2>Ce qui a été appris récemment <span class="small muted">(journal/ memoire/ competences/)</span></h2>
     <ul id="commits-body"></ul>
   </section>
 
   <section class="card" id="card-context">
     <h2>Contexte de session par défaut <span class="small muted">(ce qui est injecté à chaque réveil)</span></h2>
     <p class="small muted">
-      Fichiers statiques du dépôt qui composent le contexte sur lequel ton compagnon tourne par défaut —
-      CLAUDE.md et les permissions sont auto-chargés par le CLI Claude Code au démarrage (le
-      process tourne avec le dépôt comme répertoire de travail) ; <code>corps-vps.md</code> est
-      injecté explicitement par le harnais sur chaque réveil ; <code>dream.md</code> ne sert que
-      pour le cycle nocturne Dream. Contenu 100% statique du dépôt, pas de conversation.
+      Fichiers statiques du dépôt qui composent le contexte sur lequel ton compagnon tourne par
+      défaut — <code>CLAUDE.md</code> et les permissions sont auto-chargés par le CLI Claude Code
+      au démarrage (le process tourne avec le dépôt comme répertoire de travail). Étends la liste
+      dans <code>src/context-files.js</code> avec tes propres fichiers injectés explicitement par
+      ton harnais. Contenu 100% statique du dépôt, pas de conversation.
     </p>
     <div id="context-body">chargement…</div>
   </section>
@@ -145,13 +118,13 @@
   </section>
 
   <section class="card" id="card-dream-prompt">
-    <h2>🌙 Cycle Dream <span class="small muted">(prompt du cycle nocturne)</span></h2>
+    <h2>🌙 Rituel nocturne <span class="small muted">(exemple — prompt d'un cycle non supervisé)</span></h2>
     <div id="dream-prompt-body">chargement…</div>
   </section>
 </main>
 
 <footer class="muted small">
-  Lecture seule sauf Réglages modèle — cette carte relaie uniquement les commandes allowlistées du daemon.
+  Lecture seule sauf Réglages modèle — cette carte relaie uniquement des commandes allowlistées vers ton daemon.
 </footer>
 
 <script src="/app.js"></script>

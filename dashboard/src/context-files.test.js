@@ -7,7 +7,7 @@ import { config } from "./config.js";
 import { listContextFiles } from "./context-files.js";
 
 test("listContextFiles lit le contenu des fichiers présents et signale les absents", () => {
-  const dir = mkdtempSync(join(tmpdir(), "dashboard-ctx-"));
+  const dir = mkdtempSync(join(tmpdir(), "companion-dash-ctx-"));
   writeFileSync(join(dir, "CLAUDE.md"), "# test\n");
   const prevRepoPath = config.repoPath;
   config.repoPath = dir;

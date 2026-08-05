@@ -3,23 +3,29 @@ import { existsSync } from "node:fs";
 import { config } from "./config.js";
 
 /**
- * Lecture SEULE de la base du harnais. Ouverte en `readOnly: true` (SQLite refuse toute écriture
- * au niveau moteur, pas seulement via le bind mount `:ro` du conteneur — défense en profondeur).
+ * Lecture SEULE de la base de ton harnais. Ouverte en `readOnly: true` (SQLite refuse toute
+ * écriture au niveau moteur, pas seulement via le bind mount `:ro` du conteneur — défense en
+ * profondeur).
  *
- * Tables volontairement EXCLUES de ce dashboard, documentées aussi dans le README :
- *  - `inbox`   : payload BRUT des webhooks entrants (contenu de conversation).
- *  - `outbox`  : corps de messages EN ATTENTE de validation (contenu de conversation).
- *  - `trust`   : chat_id (numéros de téléphone / identifiants — PII).
- *  - `task_messages` : titres de tâches personnelles.
- *  - `session_log.summary` : peut contenir un extrait de ce qui se passait dans la session —
- *    exposé nulle part par l'API ci-dessous, même si la colonne existe en base.
- *  - `approvals.command` : la commande shell brute d'une demande d'approbation (peut contenir
- *    des chemins/valeurs sensibles) — seule la description est exposée.
+ * ⚠️ CONTRAT DE DONNÉES. Ce module suppose un schéma plus riche que ce que le harnais MINIMAL de
+ * ce starter fournit par défaut (`harness/src/scheduler.ts` n'écrit que `wakes`/`wake_fires`).
+ * Chaque fonction ci-dessous ATTRAPE les erreurs SQL (table/colonne manquante) et retombe sur une
+ * valeur vide plutôt que de planter la requête HTTP — donc un déploiement minimal reste utilisable
+ * (les panneaux concernés affichent juste "aucune donnée"), et tu actives progressivement chaque
+ * panneau en étendant ton propre schéma. Voir dashboard/README.md, section "Contrat de données",
+ * pour le détail table par table (colonnes attendues, panneau concerné).
  *
- * Piège vécu : `jobs.intent`/`jobs.result` ne sont PAS de simples métadonnées — ce sont des briefs
- * complets (parfois plusieurs milliers de caractères), qui peuvent citer du contenu perso. Un
- * dashboard doit rester glançable, pas un visualiseur de transcript complet → tout texte libre est
- * réduit à un aperçu une-ligne (`preview`) avant de sortir de ce module, même derrière le PIN.
+ * Champs volontairement JAMAIS exposés par ce module, quelle que soit ta propre base — si tu
+ * étends le schéma, garde cette discipline :
+ *  - le contenu BRUT de messages entrants/sortants (webhooks, boîte d'envoi) ;
+ *  - les identifiants de conversation / numéros (PII) ;
+ *  - un résumé de session pouvant citer un extrait de conversation ;
+ *  - la commande brute d'une demande d'approbation (peut contenir des chemins/valeurs sensibles).
+ *
+ * Texte libre venant d'une table type "jobs"/"approvals" (intent, résultat, description) : réduit
+ * à un aperçu une-ligne (`preview`) avant de sortir de ce module, même derrière le PIN — ce genre
+ * de champ peut être un brief complet de plusieurs milliers de caractères citant du contenu perso,
+ * pas une simple métadonnée. Un dashboard doit rester glançable, pas un visualiseur de transcript.
  */
 
 /** Aperçu une-ligne d'un champ texte libre : espaces normalisés, tronqué à `max` caractères. */
@@ -51,126 +57,115 @@ function getDb() {
   return db;
 }
 
+/** Exécute `fn(db)` et retombe sur `fallback` si la base est absente OU si la requête échoue (ex.
+ *  table/colonne manquante — schéma pas encore étendu côté daemon). Jamais bloquant. */
+function query(fn, fallback) {
+  const d = getDb();
+  if (!d) return fallback;
+  try {
+    return fn(d);
+  } catch (e) {
+    console.error("[db] requête échouée (schéma pas encore étendu ?) :", e.message);
+    return fallback;
+  }
+}
+
 export function dbStatus() {
   return { path: config.dbPath, ok: getDb() !== null, error: openError?.message ?? null };
 }
 
+/** Attend une table `jobs(id, intent, status, result, created_at, updated_at)`. */
 export function listJobs(limit = 20) {
-  const d = getDb();
-  if (!d) return [];
-  const rows = d.prepare("SELECT id, intent, status, result, created_at, updated_at FROM jobs ORDER BY id DESC LIMIT ?").all(limit);
-  return rows.map((r) => ({ ...r, intent: preview(r.intent), result: preview(r.result, 220) }));
-}
-
-export function listWakes(limit = 20) {
-  const d = getDb();
-  if (!d) return { pending: [], recent: [] };
-  const pending = d
-    .prepare("SELECT id, due_at, intent, created_by, status, recurrence_ms, sensor FROM wakes WHERE status = 'pending' ORDER BY due_at LIMIT ?")
-    .all(limit)
-    .map((r) => ({ ...r, intent: preview(r.intent) }));
-  const recent = d
-    .prepare("SELECT id, due_at, intent, created_by, status, recurrence_ms, sensor FROM wakes WHERE status != 'pending' ORDER BY id DESC LIMIT ?")
-    .all(limit)
-    .map((r) => ({ ...r, intent: preview(r.intent) }));
-  return { pending, recent };
-}
-
-/**
- * Cadence/statut des wakes portant un sensor nommé (colonne `wakes.sensor`) — pour le panneau
- * Sensors. Un sensor récurrent reste `status='pending'` en permanence si ton scheduler ré-arme la
- * MÊME ligne (`due_at` avancé) qu'il ait déclenché ou non. Donc ceci donne la cadence et la
- * prochaine échéance connues, PAS un historique des évaluations passées — ce dernier n'est pas
- * persisté en base à moins que tu journalises aussi `sensor_evals` (voir README, section Sensors).
- */
-export function listSensorWakes() {
-  const d = getDb();
-  if (!d) return [];
-  return d.prepare("SELECT id, sensor, due_at, recurrence_ms, status FROM wakes WHERE sensor IS NOT NULL ORDER BY sensor, id").all();
-}
-
-/**
- * Décompte réel des évaluations d'un sensor depuis `sinceMs` (table `sensor_evals`, optionnelle
- * côté harnais) : combien de ticks sont restés silencieux (`changed:false`, zéro token) vs. ont
- * réellement réveillé une session (`changed:true`). Table absente (base pas migrée) → zéros,
- * jamais de crash (même best-effort que le reste de ce module en lecture seule).
- */
-export function sensorEvalCounts(sensor, sinceMs) {
-  const d = getDb();
-  if (!d) return { changedTrue: 0, changedFalse: 0, lastAt: null };
-  try {
-    const row = d
-      .prepare(
-        `SELECT
-           SUM(CASE WHEN changed = 1 THEN 1 ELSE 0 END) AS changedTrue,
-           SUM(CASE WHEN changed = 0 THEN 1 ELSE 0 END) AS changedFalse,
-           MAX(ts) AS lastAt
-         FROM sensor_evals WHERE sensor = ? AND ts >= ?`,
-      )
-      .get(sensor, sinceMs);
-    return { changedTrue: row?.changedTrue ?? 0, changedFalse: row?.changedFalse ?? 0, lastAt: row?.lastAt ?? null };
-  } catch {
-    return { changedTrue: 0, changedFalse: 0, lastAt: null };
-  }
-}
-
-export function listSessions(limit = 20) {
-  const d = getDb();
-  if (!d) return [];
-  // `summary` délibérément exclu de la sélection (cf. note en tête de fichier).
-  return d
-    .prepare("SELECT session_id, scope, first_seen, last_seen, last_cost_usd, source, model, effort FROM session_log ORDER BY last_seen DESC LIMIT ?")
-    .all(limit);
-}
-
-/**
- * Sessions du cycle nocturne Dream (`source = 'dream'`), la plus récente d'abord — si ton harnais
- * a ce genre de cycle et le journalise avec ce marqueur (voir `dream-prompt.js`). Liste vide sinon,
- * pas une erreur. Mêmes exclusions que `listSessions` (pas de `summary`).
- */
-export function listDreamSessions(limit = 20) {
-  const d = getDb();
-  if (!d) return [];
-  return d
-    .prepare(
-      "SELECT session_id, scope, first_seen, last_seen, last_cost_usd, source, model, effort FROM session_log WHERE source = 'dream' ORDER BY last_seen DESC LIMIT ?",
-    )
-    .all(limit);
-}
-
-/** Une session précise par id complet (lien /#/sessions/<id> du dashboard). null si absente —
- *  même exclusion de `summary` que listSessions. */
-export function getSessionById(id) {
-  const d = getDb();
-  if (!d) return null;
-  return (
-    d
-      .prepare("SELECT session_id, scope, first_seen, last_seen, last_cost_usd, source, model, effort FROM session_log WHERE session_id = ?")
-      .get(id) ?? null
+  return query(
+    (d) =>
+      d
+        .prepare("SELECT id, intent, status, result, created_at, updated_at FROM jobs ORDER BY id DESC LIMIT ?")
+        .all(limit)
+        .map((r) => ({ ...r, intent: preview(r.intent), result: preview(r.result, 220) })),
+    [],
   );
 }
 
+/** Attend une table `wakes(id, due_at, intent, status, recurrence_ms)` — c'est exactement ce que
+ *  `harness/src/scheduler.ts` de ce starter écrit déjà : ce panneau fonctionne dès le premier
+ *  déploiement, sans rien étendre. */
+export function listWakes(limit = 20) {
+  return query((d) => {
+    const pending = d
+      .prepare("SELECT id, due_at, intent, status, recurrence_ms FROM wakes WHERE status = 'pending' ORDER BY due_at LIMIT ?")
+      .all(limit)
+      .map((r) => ({ ...r, intent: preview(r.intent) }));
+    const recent = d
+      .prepare("SELECT id, due_at, intent, status, recurrence_ms FROM wakes WHERE status != 'pending' ORDER BY id DESC LIMIT ?")
+      .all(limit)
+      .map((r) => ({ ...r, intent: preview(r.intent) }));
+    return { pending, recent };
+  }, { pending: [], recent: [] });
+}
+
+/** Attend une table `session_log(session_id, scope, first_seen, last_seen, last_cost_usd, summary,
+ *  source, model, effort)` — un historique de sessions, une ligne par fil. `summary` délibérément
+ *  jamais sélectionné (cf. note en tête de fichier). */
+export function listSessions(limit = 20) {
+  return query(
+    (d) =>
+      d
+        .prepare("SELECT session_id, scope, first_seen, last_seen, last_cost_usd, source, model, effort FROM session_log ORDER BY last_seen DESC LIMIT ?")
+        .all(limit),
+    [],
+  );
+}
+
+/**
+ * Occurrences d'un rituel nocturne (`source = 'nightly'`), la plus récente d'abord — voir
+ * `src/dream-prompt.js` pour le panneau associé. Optionnel : liste vide si ton harnais n'a pas ce
+ * concept, ou n'écrit pas encore cette valeur de `source`.
+ */
+export function listDreamSessions(limit = 20) {
+  return query(
+    (d) =>
+      d
+        .prepare(
+          "SELECT session_id, scope, first_seen, last_seen, last_cost_usd, source, model, effort FROM session_log WHERE source = 'nightly' ORDER BY last_seen DESC LIMIT ?",
+        )
+        .all(limit),
+    [],
+  );
+}
+
+/** Une session précise par id complet (lien `/#/sessions/<id>`). null si absente — même exclusion
+ *  de `summary` que `listSessions`. */
+export function getSessionById(id) {
+  return query(
+    (d) =>
+      d
+        .prepare("SELECT session_id, scope, first_seen, last_seen, last_cost_usd, source, model, effort FROM session_log WHERE session_id = ?")
+        .get(id) ?? null,
+    null,
+  );
+}
+
+/** Attend une table `approvals(id, description, kind, status, created_at, decided_at, command)` —
+ *  `command` délibérément exclu de la sélection (cf. note en tête de fichier). */
 export function listApprovals(limit = 20) {
-  const d = getDb();
-  if (!d) return [];
-  // `command` délibérément exclu de la sélection (cf. note en tête de fichier).
-  return d
-    .prepare("SELECT id, description, kind, status, created_at, decided_at FROM approvals ORDER BY id DESC LIMIT ?")
-    .all(limit)
-    .map((r) => ({ ...r, description: preview(r.description) }));
+  return query(
+    (d) =>
+      d
+        .prepare("SELECT id, description, kind, status, created_at, decided_at FROM approvals ORDER BY id DESC LIMIT ?")
+        .all(limit)
+        .map((r) => ({ ...r, description: preview(r.description) })),
+    [],
+  );
 }
 
+/** Attend une table clé/valeur `settings(key, value, updated_at)`. */
 export function getSetting(key) {
-  const d = getDb();
-  if (!d) return null;
-  const row = d.prepare("SELECT value FROM settings WHERE key = ?").get(key);
-  return row?.value ?? null;
+  return query((d) => d.prepare("SELECT value FROM settings WHERE key = ?").get(key)?.value ?? null, null);
 }
 
-// Identifiant interne (chat_id) d'un groupe multi-agents nommé — vient de config.groupChatId
-// (GROUP_CHAT_ID), jamais codé en dur ici. Utilisé uniquement pour lire les clés SQLite : l'API ne
-// le renvoie jamais et le navigateur ne peut pas choisir un chat_id arbitraire. Adapte `label` et
-// l'id de ce scope à TON propre groupe (ou retire-le si tu n'as pas ce cas d'usage).
+// Portées du panneau Réglages modèle. `group` est un exemple de portée additionnelle scopée à un
+// groupe (config.groupScopeId, ex. un chat_id WhatsApp) — jamais codée en dur, jamais renvoyée par
+// l'API. Adapte/retire cette portée si tu n'as pas ce besoin ; ajoute les tiennes sur le même modèle.
 const MODEL_SCOPES = [
   { id: "global", label: "Conversation", scopeArg: "", settingScope: "global" },
   {
@@ -178,11 +173,11 @@ const MODEL_SCOPES = [
     label: "Groupe",
     scopeArg: "group",
     get settingScope() {
-      return config.groupChatId;
+      return config.groupScopeId;
     },
   },
   { id: "jobs", label: "Jobs de fond", scopeArg: "jobs", settingScope: "jobs" },
-  { id: "dream", label: "Cycle Dream", scopeArg: "dream", settingScope: "dream" },
+  { id: "nightly", label: "Rituel nocturne", scopeArg: "nightly", settingScope: "nightly" },
 ];
 
 function scopedSettingRow(d, key, settingScope) {
@@ -201,14 +196,11 @@ function modeFromSettings(scopeId, s) {
   return "auto";
 }
 
-/** Réglages modèle/effort affichables par le panneau opérateur.
- *  Le groupe est la seule portée non-global/jobs/dream exposée par défaut : son chat_id reste une
- *  constante interne (config). Les pseudo-scopes `jobs`/`dream` sont des clés dédiées
- *  (`model:jobs`, etc.), pas des chat_id. */
+/** Réglages modèle/effort affichables par le panneau opérateur. Attend une table `settings`
+ *  clé/valeur avec des clés `model`/`effort`/`engine`/`codex_model`/`provider`/`deepseek_model`
+ *  (globales ou suffixées `:<scope>`) — un exemple de convention, adapte-la à la tienne. */
 export function modelSettings() {
-  const d = getDb();
-  if (!d) return { scopes: [] };
-  return {
+  return query((d) => ({
     scopes: MODEL_SCOPES.map((scope) => {
       const settings = {
         model: scopedSettingRow(d, "model", scope.settingScope),
@@ -226,17 +218,15 @@ export function modelSettings() {
         settings,
       };
     }),
-  };
+  }), { scopes: [] });
 }
 
 export function lastActivityAt() {
-  const d = getDb();
-  if (!d) return null;
-  const row = d.prepare("SELECT MAX(last_seen) AS ts FROM session_log").get();
-  return row?.ts ?? null;
+  return query((d) => d.prepare("SELECT MAX(last_seen) AS ts FROM session_log").get()?.ts ?? null, null);
 }
 
-/** `session_log` n'a pas de colonne `provider` dédiée : on déduit depuis le marqueur/modèle stocké. */
+/** `session_log` n'a pas forcément de colonne `provider` dédiée : déduit depuis le marqueur/modèle
+ *  stocké — adapte si ta convention diffère. */
 function providerOf(model) {
   if (!model) return "inconnu";
   if (model === "codex" || model.startsWith("gpt-")) return "codex";
@@ -244,66 +234,55 @@ function providerOf(model) {
 }
 
 /**
- * Stats de coût réel sur `cost_log` — un journal APPEND-ONLY (une ligne PAR TOUR). Couvre
- * sessions/réveils/Dream/jobs de fond si ton harnais écrit ce journal (voir README, panneau
- * Usage & billing, pour le piège à éviter si tu comptes plutôt sur `session_log`).
+ * Stats de coût réel. Attend un journal APPEND-ONLY `cost_log(ts, scope, session_id, engine,
+ * model, cost_usd)` — une ligne PAR TOUR, pas un upsert par session : un journal append-only est
+ * important pour un total fiable (un upsert par session_id sous-compterait le dépensé réel, seul
+ * le dernier coût de chaque fil survivrait à une somme).
  *
- * ⚠️ NE PAS revenir sur `session_log` pour ces totaux : si c'est un UPSERT par session_id, seul le
- * DERNIER coût de chaque fil survit, donc sommer sous-compte le dépensé réel.
- *
- * `byCategory` regroupe par `scope` en 3 buckets lisibles plutôt que d'exposer le `scope` brut
- * (qui peut être un identifiant de conversation) : `job` (JOB_SCOPE), `dream` (DREAM_SCOPE), et
- * `sessions` pour tout le reste.
+ * `byCategory` regroupe par `scope` en 3 buckets lisibles plutôt que d'exposer le `scope` brut (qui
+ * peut valoir un identifiant de conversation) : `job`, `nightly` (rituel nocturne, cf.
+ * `dream-prompt.js`), et `sessions` pour tout le reste.
  */
 export function usageSummary(days = 30) {
   const sinceMs = Date.now() - days * 86400000;
   const since7Ms = Date.now() - 7 * 86400000;
-  const d = getDb();
-  if (!d) return { sinceMs, days, totalUsd: 0, totalUsd7: 0, byDay: [], byModel: [], byCategory: [] };
+  return query((d) => {
+    const totalRow = d.prepare("SELECT SUM(cost_usd) AS usd FROM cost_log WHERE ts >= ?").get(sinceMs);
+    const total7Row = d.prepare("SELECT SUM(cost_usd) AS usd FROM cost_log WHERE ts >= ?").get(since7Ms);
 
-  const totalRow = d.prepare("SELECT SUM(cost_usd) AS usd FROM cost_log WHERE ts >= ?").get(sinceMs);
-  const total7Row = d.prepare("SELECT SUM(cost_usd) AS usd FROM cost_log WHERE ts >= ?").get(since7Ms);
+    const byDay = d
+      .prepare(
+        `SELECT strftime('%Y-%m-%d', ts / 1000, 'unixepoch') AS day, SUM(cost_usd) AS usd, COUNT(*) AS n
+         FROM cost_log WHERE ts >= ? GROUP BY day ORDER BY day`,
+      )
+      .all(sinceMs);
 
-  const byDay = d
-    .prepare(
-      `SELECT strftime('%Y-%m-%d', ts / 1000, 'unixepoch') AS day, SUM(cost_usd) AS usd, COUNT(*) AS n
-       FROM cost_log WHERE ts >= ? GROUP BY day ORDER BY day`,
-    )
-    .all(sinceMs);
+    const byModel = d
+      .prepare(
+        `SELECT COALESCE(model, 'inconnu') AS model, SUM(cost_usd) AS usd, COUNT(*) AS n
+         FROM cost_log WHERE ts >= ? GROUP BY model ORDER BY usd DESC`,
+      )
+      .all(sinceMs)
+      .map((r) => ({ ...r, provider: providerOf(r.model === "inconnu" ? null : r.model) }));
 
-  const byModel = d
-    .prepare(
-      `SELECT COALESCE(model, 'inconnu') AS model, SUM(cost_usd) AS usd, COUNT(*) AS n
-       FROM cost_log WHERE ts >= ? GROUP BY model ORDER BY usd DESC`,
-    )
-    .all(sinceMs)
-    .map((r) => ({ ...r, provider: providerOf(r.model === "inconnu" ? null : r.model) }));
+    const byCategory = d
+      .prepare(
+        `SELECT CASE WHEN scope = 'job' THEN 'job' WHEN scope = 'nightly' THEN 'nightly' ELSE 'sessions' END AS category,
+                SUM(cost_usd) AS usd, COUNT(*) AS n
+         FROM cost_log WHERE ts >= ? GROUP BY category ORDER BY usd DESC`,
+      )
+      .all(sinceMs);
 
-  const byCategory = d
-    .prepare(
-      `SELECT CASE WHEN scope = 'job' THEN 'job' WHEN scope = 'dream' THEN 'dream' ELSE 'sessions' END AS category,
-              SUM(cost_usd) AS usd, COUNT(*) AS n
-       FROM cost_log WHERE ts >= ? GROUP BY category ORDER BY usd DESC`,
-    )
-    .all(sinceMs);
-
-  return {
-    sinceMs,
-    days,
-    totalUsd: totalRow?.usd ?? 0,
-    totalUsd7: total7Row?.usd ?? 0,
-    byDay,
-    byModel,
-    byCategory,
-  };
+    return { sinceMs, days, totalUsd: totalRow?.usd ?? 0, totalUsd7: total7Row?.usd ?? 0, byDay, byModel, byCategory };
+  }, { sinceMs, days, totalUsd: 0, totalUsd7: 0, byDay: [], byModel: [], byCategory: [] });
 }
 
 /**
- * Solde DeepSeek, S'IL a été écrit en base par ton daemon (réglages `deepseek_balance_usd` /
- * `deepseek_balance_checked_at`). `null` si ton harnais n'écrit pas encore ces clés. Ce dashboard
- * ne doit JAMAIS appeler l'API DeepSeek lui-même (ça exigerait de dupliquer une clé API secrète
- * ici, une surface de secret que ce dashboard lecture-seule n'a jamais eue) — il lit seulement ce
- * que le harnais y a déjà écrit, si tu as câblé ça côté harnais.
+ * Solde d'un fournisseur externe (ex. DeepSeek), SI ton daemon l'a écrit en base (clés
+ * `deepseek_balance_usd` / `deepseek_balance_checked_at`). Optionnel — ce dashboard ne doit jamais
+ * appeler une API externe avec une clé secrète lui-même (ça dupliquerait cette clé dans un
+ * conteneur qui n'en a par ailleurs jamais eu besoin) ; il lit seulement ce que le daemon a déjà
+ * écrit, s'il le fait.
  */
 export function deepseekBalance() {
   const usd = getSetting("deepseek_balance_usd");
