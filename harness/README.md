@@ -32,6 +32,7 @@ sert, ignore le reste, adapte librement.
 | `src/lib/worktree.ts` | Travail long isolé dans un git worktree dédié, jamais sur la working-copy vivante. | [`docs/jobs-worktree-isoles.md`](docs/jobs-worktree-isoles.md) |
 | `src/lib/router.ts` | Choix modèle/effort par message — mode auto ou épinglé par commande humaine. | [`docs/routeur-pre-vol.md`](docs/routeur-pre-vol.md) |
 | `bin/wa-guard.ts`, `src/wa-guard.ts`, `config/wa-guard-groups-ok` | Garde-fou d'envoi : cadence anti-spam, groupes verrouillés par défaut, tags/mentions brutes bloquées avant envoi. | [`docs/wa-guard-et-impersonation.md`](docs/wa-guard-et-impersonation.md) |
+| `src/lib/voice-clone.ts` | Réponse en note vocale avec une voix clonée (ElevenLabs v3) : format PTT sans conversion, balises de ton vérifiées, anti-boucle. | [`docs/voix-clonee-elevenlabs.md`](docs/voix-clonee-elevenlabs.md) |
 | `src/lib/waha-stale-replay.ts` | Anti-rejeu webhook : ne pas répondre à un vieux message rejoué (reconnexion/resync) comme s'il était neuf. | [`docs/waha-stale-replay.md`](docs/waha-stale-replay.md) |
 | — (pattern) | Garde-fou anti-fuite repos publics : scan preflight + hook de merge qui lit le vrai diff public, fail-closed. | [`docs/public-anti-leak.md`](docs/public-anti-leak.md) |
 | — (pattern) | Localisation temps réel OwnTracks : ingestion → stockage borné → poller → diffusion uniquement si expéditeur vérifié. | [`docs/owntracks-localisation.md`](docs/owntracks-localisation.md) |
