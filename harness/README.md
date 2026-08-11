@@ -37,6 +37,8 @@ sert, ignore le reste, adapte librement.
 | — (pattern) | Garde-fou anti-fuite repos publics : scan preflight + hook de merge qui lit le vrai diff public, fail-closed. | [`docs/public-anti-leak.md`](docs/public-anti-leak.md) |
 | — (pattern) | Localisation temps réel OwnTracks : ingestion → stockage borné → poller → diffusion uniquement si expéditeur vérifié. | [`docs/owntracks-localisation.md`](docs/owntracks-localisation.md) |
 | — | Piège vérifié : les mentions WhatsApp via un wrapper MCP `send-text` partent en texte brut. | [`docs/mentions-whatsapp-piege.md`](docs/mentions-whatsapp-piege.md) |
+| `src/lib/service-ctl.ts` | Ton agent gère lui-même ses propres services systemd (`<préfixe>-*`) via un wrapper `sudo` appelé depuis Node — contourne le mur d'un `sudo` absent de l'allowlist de permissions Claude Code, sans jamais l'éditer. | [`docs/service-ctl-sudo-sans-sandbox.md`](docs/service-ctl-sudo-sans-sandbox.md) |
+| `src/lib/groq-extract.ts` | Extraction de faits durables (personnes) depuis un message, via Groq (gratuit, rapide) — ne bloque jamais, n'écrit jamais seul dans ta mémoire (suggestion, pas écriture aveugle). | (voir en-tête du fichier) |
 
 Complément séparé, pas un module de plus dans ce dossier : [`dashboard/`](../dashboard/README.md)
 est une app Node à part (Docker, frontend statique) qui lit la base SQLite et le dépôt git d'un
