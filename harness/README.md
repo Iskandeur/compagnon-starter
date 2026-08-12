@@ -40,6 +40,7 @@ sert, ignore le reste, adapte librement.
 | `src/lib/service-ctl.ts` | Ton agent gère lui-même ses propres services systemd (`<préfixe>-*`) via un wrapper `sudo` appelé depuis Node — contourne le mur d'un `sudo` absent de l'allowlist de permissions Claude Code, sans jamais l'éditer. | [`docs/service-ctl-sudo-sans-sandbox.md`](docs/service-ctl-sudo-sans-sandbox.md) |
 | `src/lib/groq-extract.ts` | Extraction de faits durables (personnes) depuis un message, via Groq (gratuit, rapide) — ne bloque jamais, n'écrit jamais seul dans ta mémoire (suggestion, pas écriture aveugle). | (voir en-tête du fichier) |
 | `src/lib/artificial-analysis.ts` | Client Artificial Analysis : benchmarks indépendants et gratuits des modèles LLM (indice qualité, prix, débit) — ratio qualité/prix pour repérer un modèle « frontier » ou « bon marché et capable », pattern de veille seed-puis-ack. | [`docs/artificial-analysis.md`](docs/artificial-analysis.md) |
+| `src/lib/google-oauth.ts` | Client OAuth2 "Desktop app" zéro-dépendance pour parler DIRECTEMENT aux API Google (Tasks, Calendar, Drive, Gmail…) avec ton propre quota, sans passer par un routeur tiers à quota partagé. Flux loopback (RFC 8252), `fetchFn` injectable. | [`docs/google-oauth-desktop-client.md`](docs/google-oauth-desktop-client.md) |
 
 Complément séparé, pas un module de plus dans ce dossier : [`dashboard/`](../dashboard/README.md)
 est une app Node à part (Docker, frontend statique) qui lit la base SQLite et le dépôt git d'un
