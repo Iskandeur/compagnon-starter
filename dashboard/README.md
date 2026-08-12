@@ -54,8 +54,9 @@ table par table, dans l'ordre qui te sert — rien n'est tout-ou-rien.
   (`harness/src/sensors/index.ts`) qui n'a pas d'équivalent dans le harnais de ce starter — aucun
   des modules listés dans `harness/README.md` n'implémente ce pattern. Plutôt que de porter du code
   qui ne pourrait jamais s'activer nulle part, il a été coupé (route `/api/sensors`, `src/sensors-registry.js`,
-  colonnes `sensor`/décompte d'évaluations dans `src/db.js`, section HTML/CSS associée). Si ce
-  pattern est porté séparément un jour, ce panneau peut revenir.
+  colonnes `sensor`/décompte d'évaluations dans `src/db.js`, section HTML/CSS associée — le dernier
+  résidu, `src/sensors-registry.{js,test.js}`, a traîné en code mort jusqu'au nettoyage du 12/08). Si
+  ce pattern est porté séparément un jour, ce panneau peut revenir.
 - **Panneau Quota Copilot retiré.** Spécifique à une intégration GitHub Copilot particulière, sans
   rapport avec les patterns documentés dans `harness/`.
 - **Portée de groupe nommée renommée en portée générique « Groupe »** (`GROUP_SCOPE_CHAT_ID`) —
