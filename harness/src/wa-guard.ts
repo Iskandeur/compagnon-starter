@@ -76,6 +76,161 @@ export function isSendTool(tool: string): boolean {
   return /^mcp__whatsapp_(own|human)__(send-|status-send-|forward-message)/.test(tool);
 }
 
+/** Endpoints REST qui envoient réellement quelque chose. En minuscules : le chemin est normalisé
+ *  avant comparaison, une casse différente ne doit pas ouvrir une porte dérobée. */
+const API_CALL_SEND_PATHS = new Set([
+  "/api/forwardmessage",
+  "/api/send/buttons/reply",
+  "/api/send/link-custom-preview",
+  "/api/sendbuttons",
+  "/api/sendcontactvcard",
+  "/api/sendfile",
+  "/api/sendimage",
+  "/api/sendlinkpreview",
+  "/api/sendlist",
+  "/api/sendlocation",
+  "/api/sendpoll",
+  "/api/sendpollvote",
+  "/api/sendseen",
+  "/api/sendtext",
+  "/api/sendvideo",
+  "/api/sendvoice",
+]);
+
+/** `/api/{session}/status/(text|image|video|voice)` — l'équivalent « statut » des envois ci-dessus. */
+const API_CALL_STATUS_SEND_RE = /^\/api\/[^/]+\/status\/(text|image|video|voice)$/;
+
+function normalizeApiCallPath(input: Record<string, unknown> | undefined): string {
+  const raw = typeof input?.path === "string" ? input.path : "";
+  return raw.split("?")[0].replace(/\/+$/, "").toLowerCase();
+}
+
+/**
+ * Un appel `api-call` générique est-il, DE FAIT, un envoi ?
+ *
+ * ⚠️ La raison d'être de cette fonction : la plupart des wrappers MCP exposent, à côté des outils
+ * `send-*` dédiés, un `api-call` passe-partout qui atteint les mêmes endpoints REST. Sans ce test,
+ * tout le garde-fou (cadence, fan-out, verrou des groupes, tags bruts) se contourne en une ligne —
+ * et il se contourne précisément par le chemin que la doc recommande pour les mentions. Un
+ * garde-fou qui ne couvre que la porte principale ne garde rien.
+ */
+export function isApiCallSend(tool: string, input: Record<string, unknown> | undefined): boolean {
+  if (!/^mcp__whatsapp_(own|human)__api-call$/.test(tool)) return false;
+  const method = typeof input?.method === "string" ? input.method.toUpperCase() : "";
+  if (method !== "POST") return false;
+  const path = normalizeApiCallPath(input);
+  return API_CALL_SEND_PATHS.has(path) || API_CALL_STATUS_SEND_RE.test(path);
+}
+
+/** Clés dont la valeur finit sous les yeux du destinataire. Tout le reste (identifiants, options
+ *  techniques) n'a pas à être scanné : on cherche du texte PUBLIÉ, pas des métadonnées. */
+const PUBLIC_TEXT_KEYS = new Set([
+  "text",
+  "body",
+  "caption",
+  "description",
+  "title",
+  "message",
+  "footer",
+  "button",
+  "buttons",
+  "name",
+  "options",
+  "rowId",
+  "url",
+]);
+
+function collectPublicText(value: unknown, key: string | undefined, out: string[]): void {
+  if (typeof value === "string") {
+    if (key === "body") {
+      // `body` d'un `api-call` peut arriver en JSON stringifié (cf. `parsedBody`) — recurser dans sa
+      // vraie forme plutôt que de scanner l'enveloppe comme un bloc de texte opaque.
+      try {
+        const parsed: unknown = JSON.parse(value);
+        if (parsed && typeof parsed === "object") {
+          collectPublicText(parsed, key, out);
+          return;
+        }
+      } catch {
+        /* pas du JSON valide : traité comme texte brut ci-dessous */
+      }
+    }
+    if (key && PUBLIC_TEXT_KEYS.has(key) && value.trim()) out.push(value);
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) collectPublicText(item, key, out);
+    return;
+  }
+  if (!value || typeof value !== "object") return;
+  for (const [childKey, child] of Object.entries(value)) collectPublicText(child, childKey, out);
+}
+
+/**
+ * `body` d'un `api-call` peut arriver en OBJET ou en CHAÎNE JSON selon la façon dont l'appelant a
+ * sérialisé ses paramètres — le schéma de l'outil ne déclare souvent aucun type pour ce champ, donc
+ * rien ne force le parsing en amont. Sans ce détour, `body.mentions` paraît absent alors qu'il est
+ * rempli, et une mention correctement formée se fait refuser à tort.
+ */
+function parsedBody(input: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+  const raw = input?.body;
+  if (raw && typeof raw === "object") return raw as Record<string, unknown>;
+  if (typeof raw === "string") {
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
+/** Un « @ » suivi d'un identifiant numérique long : la forme d'un tag brut, celle qui s'affiche en
+ *  clair chez le destinataire au lieu de mentionner quelqu'un. */
+const RAW_MENTION_RE = /@\d{6,}/;
+
+/**
+ * Le tag/mention de cet envoi est-il correctement formé ? Voir `docs/mentions-whatsapp-piege.md`.
+ *
+ *  - outil `send-*` (aucun champ `mentions` exposé) + tag brut dans le texte → refus : il faut
+ *    passer par `api-call POST /api/send…` avec `body.mentions` ;
+ *  - `api-call` reconnu comme un envoi + tag brut + `body.mentions` absent ou vide → refus, le
+ *    champ a été oublié ;
+ *  - `body.mentions` rempli, ou aucun tag brut détecté → laisse passer.
+ *
+ * Le refus porte un message qui dit QUOI FAIRE, pas seulement « interdit » : ce garde-fou se
+ * déclenche au moment où l'agent croyait avoir fini, et une erreur sans issue le pousse à ruser.
+ */
+export function decideMentionFormat(tool: string, input: Record<string, unknown> | undefined): GuardDecision {
+  const apiSend = isApiCallSend(tool, input);
+  if (!apiSend && !isSendTool(tool)) return { allow: true, reason: "pas un envoi" };
+
+  const texts: string[] = [];
+  collectPublicText(input, undefined, texts);
+  if (!texts.some((t) => RAW_MENTION_RE.test(t))) return { allow: true, reason: "aucun tag brut détecté" };
+
+  if (apiSend) {
+    const body = parsedBody(input) ?? {};
+    const mentions = Array.isArray(body.mentions) ? body.mentions : [];
+    if (mentions.length > 0) return { allow: true, reason: "mention déclarée via body.mentions" };
+    return {
+      allow: false,
+      reason:
+        "Tag brut « @<numéro> » détecté mais body.mentions est vide/absent — ajoute " +
+        'mentions:["<numéro>@c.us"] ou ["<lid>@lid"] dans le body avant d\'envoyer, sinon le tag ' +
+        "s'affichera en clair.",
+    };
+  }
+  return {
+    allow: false,
+    reason:
+      `Tag brut « @<numéro> » détecté dans un envoi via ${tool} (pas de champ mentions). ` +
+      "Passe par mcp__whatsapp_*__api-call (POST /api/sendText, body.mentions:[\"<numéro>@c.us\" ou \"<lid>@lid\"]), " +
+      "ou adresse-toi par le prénom sans @.",
+  };
+}
+
 const HOUR = 3_600_000;
 
 /** Décision du garde-fou. Pure : on lui passe l'historique et l'instant. */
@@ -190,9 +345,19 @@ export function groupUnlocked(allow: Set<string>, chat: string): boolean {
   return allow.has("*") || allow.has(chat);
 }
 
-/** Extrait le chatId de l'input d'outil d'envoi (best-effort, tolère plusieurs conventions de nommage). */
+/**
+ * Extrait le chatId de l'input d'un outil d'envoi (best-effort, plusieurs conventions de nommage).
+ *
+ * ⚠️ Regarde AUSSI dans `body` : sur un `api-call`, le destinataire est niché là et pas à la racine.
+ * Sans ce repli, la cadence et le verrou des groupes s'appliquaient à un chat `"?"` — c'est-à-dire à
+ * personne, donc à rien.
+ */
 export function chatOf(input: Record<string, unknown> | undefined): string {
   if (!input) return "?";
-  const v = input.chatId ?? input.to ?? input.chat_id ?? input.participant;
-  return typeof v === "string" && v ? v : "?";
+  const pick = (o: Record<string, unknown>): unknown => o.chatId ?? o.to ?? o.chat_id ?? o.participant;
+  const direct = pick(input);
+  if (typeof direct === "string" && direct) return direct;
+  const body = parsedBody(input);
+  const nested = body ? pick(body) : undefined;
+  return typeof nested === "string" && nested ? nested : "?";
 }
