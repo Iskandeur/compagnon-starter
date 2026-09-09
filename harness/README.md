@@ -44,6 +44,7 @@ sert, ignore le reste, adapte librement.
 | `bin/usage-topics.ts`, `src/lib/usage-topics.ts` | Répartition de l'usage par SUJET (pas par canal) à partir des résumés de `session_log` — règles ordonnées, `--json` pour brancher un dashboard. | [`docs/usage-topics.md`](docs/usage-topics.md) |
 | — (pattern, outils Claude Code) | Coordonner plusieurs lanes concurrentes (`ListAgents`/`SendMessage`) : repérer une lane déjà en cours sur un scope avant d'agir, plutôt que dupliquer le travail. | [`docs/lanes-listagents-sendmessage.md`](docs/lanes-listagents-sendmessage.md) |
 | `src/lib/voice-audit.ts` | Détecteurs mécaniques de tics de LLM en français (tiret cadratin, gras à outrance, négation parallèle…) dans tes propres messages — zéro dépendance, zéro appel LLM, fenêtre temporelle figée pour des mesures comparables. | [`docs/voice-audit-tics-llm.md`](docs/voice-audit-tics-llm.md) |
+| `src/lib/turn-cancel.ts` | Interrompre un raisonnement déjà lancé par une réaction emoji sur n'importe quel message du fil — module PUR, à appeler dans le chemin synchrone du webhook (dans le handler, il s'exécute après le tour qu'il devait tuer). | [`docs/stop-par-reaction.md`](docs/stop-par-reaction.md) |
 
 Complément séparé, pas un module de plus dans ce dossier : [`dashboard/`](../dashboard/README.md)
 est une app Node à part (Docker, frontend statique) qui lit la base SQLite et le dépôt git d'un
