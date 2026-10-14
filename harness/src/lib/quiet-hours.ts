@@ -97,6 +97,12 @@ export function effectiveConcurrency(
 export function describeQuietHours(rawSetting: string | null | undefined, defaultTz: string = DEFAULT_QUIET_TZ): string {
   const spec = parseQuietHours(rawSetting, defaultTz);
   if (!spec) return "aucune (les jobs tournent à pleine concurrence 24 h/24)";
+  try {
+    localMinutes(0, spec.tz);
+  } catch {
+    // Même sens de panne qu'inQuietHours : ne pas annoncer un bridage qui n'aura pas lieu.
+    return `aucune (zone inconnue « ${spec.tz} » : les jobs tournent à pleine concurrence)`;
+  }
   const hm = (min: number): string => `${String(Math.floor(min / 60)).padStart(2, "0")}:${String(min % 60).padStart(2, "0")}`;
   return `${hm(spec.startMin)}–${hm(spec.endMin)} (${spec.tz}) → concurrence ${QUIET_CONCURRENCY}`;
 }

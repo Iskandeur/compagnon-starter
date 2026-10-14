@@ -81,4 +81,6 @@ test("effectiveConcurrency : 1 dans la plage, la base en dehors, jamais au-dessu
 test("describeQuietHours : lisible", () => {
   assert.equal(describeQuietHours("8:00-20:00 Europe/Paris"), "08:00–20:00 (Europe/Paris) → concurrence 1");
   assert.match(describeQuietHours(null), /aucune/);
+  // Zone inconnue : inQuietHours ne bride pas, le rendu ne doit pas prétendre le contraire.
+  assert.match(describeQuietHours("08:00-20:00 Mars/Olympus"), /^aucune \(zone inconnue/);
 });
